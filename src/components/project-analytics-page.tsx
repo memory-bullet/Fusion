@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import clsx from "clsx";
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { TopNav } from "@/components/top-nav";
-import { ProjectTabs } from "@/components/project-tabs";
 import { ProjectHero } from "@/components/project-hero";
 import { useProjectDashboard } from "@/lib/use-project-dashboard";
 

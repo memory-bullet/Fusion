@@ -1,9 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
-import { BellRing, FileUp, RefreshCw } from "lucide-react";
+import { ArrowLeft, BellRing, FileUp, RefreshCw } from "lucide-react";
 import { TopNav } from "@/components/top-nav";
-import { ProjectTabs } from "@/components/project-tabs";
 import { ProjectHero } from "@/components/project-hero";
 import { useProjectDashboard } from "@/lib/use-project-dashboard";
 import { DashboardTask } from "@/lib/types";
@@ -39,7 +39,15 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
       <TopNav />
       <div className="shell py-6">
         <ProjectHero project={data.project} title="项目管理" subtitle="上传文档、查看任务列表，并跟踪系统干预记录。" />
-        <ProjectTabs projectId={projectId} />
+        <div className="mb-6">
+          <Link
+            href={`/project/${projectId}`}
+            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            返回主界面
+          </Link>
+        </div>
 
         <section className="line-card mb-8 p-6">
           <div className="grid gap-4 lg:grid-cols-[1.05fr_1fr]">
