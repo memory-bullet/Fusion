@@ -1,4 +1,4 @@
-﻿import { TaskStatus, WarningLevel } from "@/lib/domain";
+import { TaskStatus, WarningLevel } from "@/lib/domain";
 
 export type DashboardTask = {
   id: string;
@@ -38,5 +38,16 @@ export type DashboardData = {
     description: string;
     createdAt: string;
     user: { id: string; name: string };
+  }>;
+  files: Array<{
+    id: string;
+    title: string;
+    summary: string;
+    content: string;
+    mimeType: string;
+    status: string;
+    createdAt: string;
+    author: string;
+    downloadUrl: string;
   }>;
 };

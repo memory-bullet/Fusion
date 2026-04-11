@@ -16,6 +16,7 @@ model User {
   memberships       ProjectMember[]
   assignedTasks     Task[]
   logs              ActionLog[]
+  uploadedFiles     ProjectFile[]
 }
 
 model Project {
@@ -30,6 +31,7 @@ model Project {
   members        ProjectMember[]
   tasks          Task[]
   logs           ActionLog[]
+  files          ProjectFile[]
 }
 
 model ProjectMember {
@@ -72,4 +74,21 @@ model ActionLog {
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ProjectFile {
+  id           String   @id @default(cuid())
+  projectId    String
+  uploaderId   String
+  title        String
+  summary      String
+  extractedText String
+  mimeType     String
+  relativePath String
+  status       String   @default("PENDING")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploader User    @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
 }

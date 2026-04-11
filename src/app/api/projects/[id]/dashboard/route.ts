@@ -6,15 +6,9 @@ import { requireProjectMember } from "@/lib/auth";
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    let meId: string | null = null;
-    try {
-      meId = await requireProjectMember(id);
-    } catch {
-      // Allow read-only dashboard mode for direct shared links without an active member cookie.
-      meId = null;
-    }
+    const meId = await requireProjectMember(id);
 
-    const [project, members, tasks, logs] = await Promise.all([
+    const [project, members, tasks, logs, files] = await Promise.all([
       prisma.project.findUnique({ where: { id } }),
       prisma.projectMember.findMany({ where: { projectId: id }, include: { user: true } }),
       prisma.task.findMany({ where: { projectId: id }, include: { assignee: true }, orderBy: { createdAt: "asc" } }),
@@ -23,6 +17,11 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
         include: { user: true },
         orderBy: { createdAt: "desc" },
         take: 30
+      }),
+      prisma.projectFile.findMany({
+        where: { projectId: id },
+        include: { uploader: true },
+        orderBy: { createdAt: "desc" }
       })
     ]);
 
@@ -44,7 +43,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       )
     );
 
-    const me = members.find((m) => m.userId === meId)?.user ?? members[0]?.user;
+    const me = members.find((m) => m.userId === meId)?.user;
 
     if (!me) {
       return NextResponse.json({ error: "User is not in project" }, { status: 403 });
@@ -55,7 +54,18 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       me,
       members: members.map((member) => member.user),
       tasks: tasksWithWarning,
-      logs
+      logs,
+      files: files.map((file) => ({
+        id: file.id,
+        title: file.title,
+        summary: file.summary,
+        content: file.extractedText,
+        mimeType: file.mimeType,
+        status: file.status,
+        createdAt: file.createdAt,
+        author: file.uploader.name,
+        downloadUrl: `/api/projects/${id}/files/${file.id}/download`
+      }))
     });
   } catch (error) {
     return NextResponse.json(
