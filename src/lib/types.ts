@@ -1,4 +1,4 @@
-import { TaskStatus, WarningLevel } from "@/lib/domain";
+﻿import { TaskStatus, WarningLevel } from "@/lib/domain";
 
 export type DashboardTask = {
   id: string;
@@ -10,6 +10,16 @@ export type DashboardTask = {
   warningLevel: WarningLevel;
   isReallocated: boolean;
   assignee: { id: string; name: string } | null;
+};
+
+export type DashboardFile = {
+  id: string;
+  name: string;
+  uploaderId: string;
+  uploader: string;
+  uploadedAt: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  previewUrl: string;
 };
 
 export type DashboardData = {
@@ -36,6 +46,7 @@ export type DashboardData = {
     creditScore: number;
   }>;
   tasks: DashboardTask[];
+  files: DashboardFile[];
   logs: Array<{
     id: string;
     actionType: string;

@@ -22,66 +22,48 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     try {
       meId = await requireProjectMember(id);
     } catch {
-      // Allow read-only dashboard mode for direct shared links without an active member cookie.
       meId = null;
     }
 
-    const [project, members, tasks, logs] = await Promise.all([
+    const [project, members, tasks, files, logs] = await Promise.all([
       prisma.project.findUnique({ where: { id } }),
       prisma.projectMember.findMany({ where: { projectId: id }, include: { user: true } }),
       prisma.task.findMany({ where: { projectId: id }, include: { assignee: true }, orderBy: { createdAt: "asc" } }),
-      prisma.actionLog.findMany({
-        where: { projectId: id },
-        include: { user: true },
-        orderBy: { createdAt: "desc" },
-        take: 30
-      })
+      prisma.projectFile.findMany({ where: { projectId: id }, include: { uploader: true }, orderBy: { createdAt: "desc" } }),
+      prisma.actionLog.findMany({ where: { projectId: id }, include: { user: true }, orderBy: { createdAt: "desc" }, take: 30 })
     ]);
 
-    if (!project) {
-      return NextResponse.json({ error: "Project not found" }, { status: 404 });
-    }
+    if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
-    const tasksWithWarning = tasks.map((task: any) => ({
-      ...task,
-      warningLevel: getWarningLevel(task.deadline)
-    }));
+    const tasksWithWarning = tasks.map((task: any) => ({ ...task, warningLevel: getWarningLevel(task.deadline) }));
 
-    await prisma.$transaction(
-      tasksWithWarning.map((task: any) =>
-        prisma.task.update({
-          where: { id: task.id },
-          data: { warningLevel: task.warningLevel }
-        })
-      )
-    );
+    await prisma.$transaction(tasksWithWarning.map((task: any) => prisma.task.update({ where: { id: task.id }, data: { warningLevel: task.warningLevel } })));
 
     const myMembership = members.find((m) => m.userId === meId);
     const me = myMembership?.user ?? members[0]?.user;
-    
-    if (!me) {
-      return NextResponse.json({ error: "User is not in project" }, { status: 403 });
-    }
+    if (!me) return NextResponse.json({ error: "User is not in project" }, { status: 403 });
 
-    const isOwner = myMembership.role === "OWNER";
-
+    const isOwner = myMembership?.role === "OWNER";
     const { keyDeliverables: rawDeliverables, ...projectRest } = project;
 
     return NextResponse.json({
       isOwner,
-      project: {
-        ...projectRest,
-        keyDeliverables: parseKeyDeliverables(rawDeliverables)
-      },
+      project: { ...projectRest, keyDeliverables: parseKeyDeliverables(rawDeliverables) },
       me,
       members: members.map((member) => member.user),
       tasks: tasksWithWarning,
+      files: files.map((file) => ({
+        id: file.id,
+        name: file.originalName,
+        uploaderId: file.uploaderId,
+        uploader: file.uploader.name,
+        uploadedAt: file.createdAt,
+        status: file.status,
+        previewUrl: `/project/${id}/files/${file.id}`
+      })),
       logs
     });
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to load dashboard" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to load dashboard" }, { status: 400 });
   }
 }
