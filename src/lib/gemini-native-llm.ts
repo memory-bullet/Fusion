@@ -1,14 +1,19 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getGeminiApiKey, getGeminiNativeModel, getGeminiVisionModel } from "@/lib/llm-config";
 
-function client() {
+async function client() {
   const key = getGeminiApiKey();
   if (!key) throw new Error("GEMINI_API_KEY is not configured");
+  const runtimeRequire = eval("require") as NodeRequire;
+  const { GoogleGenerativeAI } = runtimeRequire("@google/generative-ai") as {
+    GoogleGenerativeAI: new (apiKey: string) => {
+      getGenerativeModel: (...args: unknown[]) => any;
+    };
+  };
   return new GoogleGenerativeAI(key);
 }
 
 export async function generateJsonWithSystem(system: string, user: string): Promise<string> {
-  const model = client().getGenerativeModel({
+  const model = (await client()).getGenerativeModel({
     model: getGeminiNativeModel(),
     systemInstruction: system,
     generationConfig: {
@@ -26,7 +31,7 @@ export async function generateJsonWithSystem(system: string, user: string): Prom
 }
 
 export async function generateTextWithSystem(system: string, user: string, maxOut = 1024, temperature = 0.35): Promise<string> {
-  const model = client().getGenerativeModel({
+  const model = (await client()).getGenerativeModel({
     model: getGeminiNativeModel(),
     systemInstruction: system,
     generationConfig: {
@@ -43,7 +48,7 @@ export async function generateTextWithSystem(system: string, user: string, maxOu
 }
 
 export async function generateShortLine(system: string, user: string): Promise<string> {
-  const model = client().getGenerativeModel({
+  const model = (await client()).getGenerativeModel({
     model: getGeminiNativeModel(),
     systemInstruction: system,
     generationConfig: {
@@ -58,7 +63,7 @@ export async function generateShortLine(system: string, user: string): Promise<s
 }
 
 export async function extractTextFromImageBase64(mimeType: string, base64: string): Promise<string> {
-  const model = client().getGenerativeModel({
+  const model = (await client()).getGenerativeModel({
     model: getGeminiVisionModel(),
     generationConfig: { temperature: 0.2, maxOutputTokens: 8192 }
   });
@@ -101,7 +106,7 @@ export async function* streamChatWithSystem(
     parts: [{ text: t.content }]
   }));
 
-  const model = client().getGenerativeModel({
+  const model = (await client()).getGenerativeModel({
     model: getGeminiNativeModel(),
     systemInstruction: system,
     generationConfig: {

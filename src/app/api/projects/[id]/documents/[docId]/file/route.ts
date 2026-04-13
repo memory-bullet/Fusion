@@ -12,6 +12,13 @@ function encodeRFC5987(name: string): string {
   return encodeURIComponent(name).replace(/['()*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
 }
 
+function asciiFilenameFallback(name: string): string {
+  const normalized = name.normalize("NFKD");
+  const ascii = normalized.replace(/[\u0080-\uFFFF]/g, "_").replace(/["\\]/g, "_");
+  const collapsed = ascii.replace(/_+/g, "_").trim();
+  return collapsed || "download";
+}
+
 export async function GET(
   _: NextRequest,
   { params }: { params: Promise<{ id: string; docId: string }> }
@@ -37,7 +44,7 @@ export async function GET(
     const webStream = Readable.toWeb(stream) as unknown as ReadableStream;
 
     const filename = doc.originalFileName || "download";
-    const disposition = `inline; filename="${filename.replace(/"/g, "")}"; filename*=UTF-8''${encodeRFC5987(filename)}`;
+    const disposition = `inline; filename="${asciiFilenameFallback(filename)}"; filename*=UTF-8''${encodeRFC5987(filename)}`;
 
     return new NextResponse(webStream, {
       headers: {

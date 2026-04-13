@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Camera } from "lucide-react";
+import { Camera, Plus, X } from "lucide-react";
 import { InviteQrScanner } from "@/components/invite-qr-scanner";
 
 type JoinMode = "id" | "invite";
@@ -16,7 +16,6 @@ type MyProjectRow = {
   deadline: string;
 };
 
-/** 与 DESIGN.md 一致；首页专用（三卡并列时需更宽版心） */
 const ui = {
   shell: "mx-auto w-full max-w-6xl px-5 pb-20 pt-14 sm:px-6 sm:pt-16",
   card: "rounded-2xl border border-neutral-200/90 bg-white p-5 shadow-sm sm:p-6",
@@ -39,7 +38,9 @@ export default function HomePage() {
   const [title, setTitle] = useState("");
   const [deadline, setDeadline] = useState("");
   const [ownerName, setOwnerName] = useState("");
-  const [memberNames, setMemberNames] = useState("");
+  const [memberNames, setMemberNames] = useState<string[]>([]);
+  const [memberDraft, setMemberDraft] = useState("");
+  const [memberDialogOpen, setMemberDialogOpen] = useState(false);
   const [joinMode, setJoinMode] = useState<JoinMode>("invite");
   const [joinProjectId, setJoinProjectId] = useState("");
   const [joinInviteCode, setJoinInviteCode] = useState("");
@@ -91,6 +92,18 @@ export default function HomePage() {
   const isRegistered = Boolean(sessionUser?.email);
   const canUseApp = authReady && isRegistered;
 
+  function addMemberName() {
+    const name = memberDraft.trim();
+    if (!name) return;
+    setMemberNames((prev) => [...prev, name]);
+    setMemberDraft("");
+    setMemberDialogOpen(false);
+  }
+
+  function removeMemberName(index: number) {
+    setMemberNames((prev) => prev.filter((_, i) => i !== index));
+  }
+
   async function createProject() {
     setError(null);
     if (!isRegistered) {
@@ -119,10 +132,7 @@ export default function HomePage() {
         title: t,
         deadline: new Date(deadline).toISOString(),
         ownerName: on,
-        memberNames: memberNames
-          .split(",")
-          .map((name) => name.trim())
-          .filter(Boolean)
+        memberNames: memberNames.map((name) => name.trim()).filter(Boolean)
       })
     });
 
@@ -146,10 +156,7 @@ export default function HomePage() {
       return;
     }
 
-    const base =
-      joinMode === "id"
-        ? { projectId: joinProjectId.trim() }
-        : { inviteCode: joinInviteCode.trim() };
+    const base = joinMode === "id" ? { projectId: joinProjectId.trim() } : { inviteCode: joinInviteCode.trim() };
 
     if (joinMode === "invite" && !joinInviteCode.trim()) {
       setError("请填写队长提供的邀请码");
@@ -183,9 +190,7 @@ export default function HomePage() {
           <p className={`${ui.muted} mt-2`}>团队项目协作</p>
         </header>
 
-        {!authReady ? (
-          <p className="mt-14 text-center text-sm text-neutral-400">正在确认登录状态…</p>
-        ) : null}
+        {!authReady ? <p className="mt-14 text-center text-sm text-neutral-400">正在确认登录状态…</p> : null}
 
         {authReady && !canUseApp ? (
           <div className="mx-auto mt-12 max-w-md">
@@ -193,42 +198,20 @@ export default function HomePage() {
               <h2 className="text-base font-semibold text-neutral-900">请先登录或注册</h2>
               {!sessionUser ? (
                 <>
-                  <p className={`${ui.muted} mt-3`}>
-                    未登录无法打开、新建或加入项目。请使用已注册账号登录；没有账号可先注册。
-                  </p>
-                  {joinInviteCode ? (
-                    <p className="mt-4 text-xs leading-relaxed text-neutral-500">
-                      已从链接带入邀请码，登录后在「加入项目」中可直接使用。
-                    </p>
-                  ) : null}
+                  <p className={`${ui.muted} mt-3`}>未登录无法打开、新建或加入项目。请使用已注册账号登录；没有账号可先注册。</p>
+                  {joinInviteCode ? <p className="mt-4 text-xs leading-relaxed text-neutral-500">已从链接带入邀请码，登录后在「加入项目」中可直接使用。</p> : null}
                   <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
-                    <Link href="/login" className={`${ui.btnGhost} sm:min-w-[120px]`}>
-                      登录
-                    </Link>
-                    <Link href="/register" className={`${ui.btnGhostDark} sm:min-w-[120px]`}>
-                      注册
-                    </Link>
+                    <Link href="/login" className={`${ui.btnGhost} sm:min-w-[120px]`}>登录</Link>
+                    <Link href="/register" className={`${ui.btnGhostDark} sm:min-w-[120px]`}>注册</Link>
                   </div>
                 </>
               ) : (
                 <>
-                  <p className={`${ui.muted} mt-3`}>
-                    当前会话未绑定注册邮箱。请退出后使用已注册账号登录，或完成注册。
-                  </p>
+                  <p className={`${ui.muted} mt-3`}>当前会话未绑定注册邮箱。请退出后使用已注册账号登录，或完成注册。</p>
                   <div className="mt-8 flex flex-col gap-3">
-                    <Link href="/login" className={ui.btnGhostDark}>
-                      改用注册账号登录
-                    </Link>
-                    <Link href="/register" className={ui.btnGhost}>
-                      注册新账号
-                    </Link>
-                    <button
-                      type="button"
-                      className={ui.btnOutline}
-                      onClick={() => void fetch("/api/auth/logout", { method: "POST" }).then(() => window.location.reload())}
-                    >
-                      清除本机身份
-                    </button>
+                    <Link href="/login" className={ui.btnGhostDark}>改用注册账号登录</Link>
+                    <Link href="/register" className={ui.btnGhost}>注册新账号</Link>
+                    <button type="button" className={ui.btnOutline} onClick={() => void fetch("/api/auth/logout", { method: "POST" }).then(() => window.location.reload())}>清除本机身份</button>
                   </div>
                 </>
               )}
@@ -244,13 +227,7 @@ export default function HomePage() {
                 <span className="text-neutral-400">·</span>
                 <span className="max-w-[260px] truncate text-neutral-500">{sessionUser!.email}</span>
                 <span className="text-neutral-400">·</span>
-                <button
-                  type="button"
-                  className="text-neutral-900 underline decoration-neutral-300 underline-offset-4 hover:decoration-neutral-900"
-                  onClick={() => void fetch("/api/auth/logout", { method: "POST" }).then(() => window.location.reload())}
-                >
-                  退出
-                </button>
+                <button type="button" className="text-neutral-900 underline decoration-neutral-300 underline-offset-4 hover:decoration-neutral-900" onClick={() => void fetch("/api/auth/logout", { method: "POST" }).then(() => window.location.reload())}>退出</button>
               </div>
               <p className="max-w-lg text-xs text-neutral-500">登录后可打开已有项目、新建项目或通过邀请码 / 项目 ID 加入。</p>
             </div>
@@ -261,37 +238,13 @@ export default function HomePage() {
               <section className={`${ui.card} flex flex-col`}>
                 <h2 className="text-base font-semibold text-neutral-900">打开项目</h2>
                 <p className={`${ui.muted} mt-1`}>选择后进入项目主页</p>
-                {myProjectsLoading ? (
-                  <p className="mt-4 text-sm text-neutral-400">加载列表中…</p>
-                ) : myProjects.length === 0 ? (
-                  <p className={`${ui.muted} mt-4`}>暂无项目，可在旁新建或加入。</p>
-                ) : (
+                {myProjectsLoading ? <p className="mt-4 text-sm text-neutral-400">加载列表中…</p> : myProjects.length === 0 ? <p className={`${ui.muted} mt-4`}>暂无项目，可在旁新建或加入。</p> : (
                   <div className="mt-4 flex flex-1 flex-col gap-3">
-                    <select
-                      className={ui.field}
-                      value={selectedProjectId}
-                      onChange={(e) => {
-                        const id = e.target.value;
-                        setSelectedProjectId(id);
-                        if (id) router.push(`/project/${id}`);
-                      }}
-                    >
+                    <select className={ui.field} value={selectedProjectId} onChange={(e) => { const id = e.target.value; setSelectedProjectId(id); if (id) router.push(`/project/${id}`); }}>
                       <option value="">选择项目…</option>
-                      {myProjects.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.title}
-                          {p.role === "OWNER" ? " · 队长" : " · 成员"}
-                        </option>
-                      ))}
+                      {myProjects.map((p) => <option key={p.id} value={p.id}>{p.title}{p.role === "OWNER" ? " · 队长" : " · 成员"}</option>)}
                     </select>
-                    <button
-                      type="button"
-                      disabled={!selectedProjectId}
-                      onClick={() => selectedProjectId && router.push(`/project/${selectedProjectId}`)}
-                      className={ui.btnPrimary}
-                    >
-                      进入
-                    </button>
+                    <button type="button" disabled={!selectedProjectId} onClick={() => selectedProjectId && router.push(`/project/${selectedProjectId}`)} className={ui.btnPrimary}>进入</button>
                   </div>
                 )}
               </section>
@@ -300,108 +253,74 @@ export default function HomePage() {
                 <h2 className="text-base font-semibold text-neutral-900">新建项目</h2>
                 <p className={`${ui.muted} mt-1`}>你将担任队长</p>
                 <div className="mt-5 flex flex-1 flex-col space-y-4">
-                  <input
-                    className={ui.field}
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder="项目名称"
-                  />
+                  <input className={ui.field} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="项目名称" />
                   <div>
                     <label className={ui.label}>截止时间</label>
-                    <input
-                      className={ui.field}
-                      type="datetime-local"
-                      value={deadline}
-                      onChange={(e) => setDeadline(e.target.value)}
-                    />
+                    <input className={ui.field} type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
                   </div>
-                  <input
-                    className={ui.field}
-                    value={ownerName}
-                    onChange={(e) => setOwnerName(e.target.value)}
-                    placeholder="队长显示昵称"
-                  />
-                  <input
-                    className={ui.field}
-                    value={memberNames}
-                    onChange={(e) => setMemberNames(e.target.value)}
-                    placeholder="初始成员（昵称，逗号分隔，可选）"
-                  />
+                  <input className={ui.field} value={ownerName} onChange={(e) => setOwnerName(e.target.value)} placeholder="队长显示昵称" />
+                  <div>
+                    <div className="flex items-center justify-between gap-3">
+                      <label className={ui.label}>初始成员（可选）</label>
+                      <button type="button" onClick={() => { setMemberDraft(""); setMemberDialogOpen(true); }} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-900 transition hover:bg-neutral-50" aria-label="新增成员"><Plus className="h-4 w-4" /></button>
+                    </div>
+                    {memberNames.length === 0 ? <div className="rounded-xl bg-neutral-50 px-4 py-3 text-sm text-neutral-400 ring-1 ring-inset ring-neutral-200">暂无成员，点击右侧加号逐个添加成员昵称</div> : (
+                      <div className="flex min-h-[52px] flex-wrap gap-2 rounded-xl bg-neutral-50 px-3 py-3 ring-1 ring-inset ring-neutral-200">
+                        {memberNames.map((name, index) => (
+                          <span key={`${name}-${index}`} className="inline-flex items-center gap-1 rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-sm text-neutral-800">
+                            <span>{name}</span>
+                            <button type="button" onClick={() => removeMemberName(index)} className="text-neutral-400 transition hover:text-neutral-900" aria-label={`删除成员 ${name}`}><X className="h-3.5 w-3.5" /></button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <button type="button" onClick={createProject} className={`${ui.btnPrimary} mt-5`}>
-                  创建
-                </button>
+                <button type="button" onClick={createProject} className={`${ui.btnPrimary} mt-5`}>创建</button>
               </section>
 
               <section className={`${ui.card} flex flex-col`}>
                 <h2 className="text-base font-semibold text-neutral-900">加入项目</h2>
                 <p className={`${ui.muted} mt-1`}>向队长索取邀请码或项目 ID</p>
                 <div className="mt-4 flex gap-6 border-b border-neutral-200">
-                  <button
-                    type="button"
-                    onClick={() => setJoinMode("invite")}
-                    className={`border-b-2 pb-2 text-sm font-medium transition ${
-                      joinMode === "invite" ? "border-neutral-900 text-neutral-900" : "border-transparent text-neutral-400 hover:text-neutral-600"
-                    }`}
-                  >
-                    邀请码
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setJoinMode("id")}
-                    className={`border-b-2 pb-2 text-sm font-medium transition ${
-                      joinMode === "id" ? "border-neutral-900 text-neutral-900" : "border-transparent text-neutral-400 hover:text-neutral-600"
-                    }`}
-                  >
-                    项目 ID
-                  </button>
+                  <button type="button" onClick={() => setJoinMode("invite")} className={`border-b-2 pb-2 text-sm font-medium transition ${joinMode === "invite" ? "border-neutral-900 text-neutral-900" : "border-transparent text-neutral-400 hover:text-neutral-600"}`}>邀请码</button>
+                  <button type="button" onClick={() => setJoinMode("id")} className={`border-b-2 pb-2 text-sm font-medium transition ${joinMode === "id" ? "border-neutral-900 text-neutral-900" : "border-transparent text-neutral-400 hover:text-neutral-600"}`}>项目 ID</button>
                 </div>
                 <div className="mt-5 flex flex-1 flex-col space-y-4">
                   {joinMode === "invite" ? (
                     <div className="flex gap-2">
-                      <input
-                        className={`${ui.field} min-w-0 flex-1`}
-                        value={joinInviteCode}
-                        onChange={(e) => setJoinInviteCode(e.target.value)}
-                        placeholder="邀请码或扫码填入"
-                        autoComplete="off"
-                      />
-                      <button
-                        type="button"
-                        title="扫描邀请二维码"
-                        onClick={() => {
-                          setError(null);
-                          setInviteScanOpen(true);
-                        }}
-                        className={`${ui.btnGhost} shrink-0 gap-1.5 px-3`}
-                      >
-                        <Camera className="h-4 w-4" aria-hidden />
-                        <span className="hidden sm:inline">扫码</span>
-                      </button>
+                      <input className={`${ui.field} min-w-0 flex-1`} value={joinInviteCode} onChange={(e) => setJoinInviteCode(e.target.value)} placeholder="邀请码或扫码填入" autoComplete="off" />
+                      <button type="button" title="扫描邀请二维码" onClick={() => { setError(null); setInviteScanOpen(true); }} className={`${ui.btnGhost} shrink-0 gap-1.5 px-3`}><Camera className="h-4 w-4" aria-hidden /><span className="hidden sm:inline">扫码</span></button>
                     </div>
-                  ) : (
-                    <input
-                      className={`${ui.field} font-mono text-[13px]`}
-                      value={joinProjectId}
-                      onChange={(e) => setJoinProjectId(e.target.value)}
-                      placeholder="项目 ID"
-                    />
-                  )}
+                  ) : <input className={`${ui.field} font-mono text-[13px]`} value={joinProjectId} onChange={(e) => setJoinProjectId(e.target.value)} placeholder="项目 ID" />}
                 </div>
-                <button type="button" onClick={joinProject} className={`${ui.btnOutline} mt-5`}>
-                  加入
-                </button>
+                <button type="button" onClick={joinProject} className={`${ui.btnOutline} mt-5`}>加入</button>
               </section>
             </div>
 
-            <InviteQrScanner
-              open={inviteScanOpen}
-              onClose={() => setInviteScanOpen(false)}
-              onDecoded={(code) => {
-                setJoinInviteCode(code);
-                setError(null);
-              }}
-            />
+            <InviteQrScanner open={inviteScanOpen} onClose={() => setInviteScanOpen(false)} onDecoded={(code) => { setJoinInviteCode(code); setError(null); }} />
+
+            {memberDialogOpen ? (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-5">
+                <div className="w-full max-w-sm rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-base font-semibold text-neutral-900">新增成员</h3>
+                      <p className="mt-1 text-sm text-neutral-500">填写成员昵称，确认后加入初始成员列表。</p>
+                    </div>
+                    <button type="button" onClick={() => { setMemberDialogOpen(false); setMemberDraft(""); }} className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-neutral-200 text-neutral-500 transition hover:bg-neutral-50 hover:text-neutral-900" aria-label="关闭新增成员窗口"><X className="h-4 w-4" /></button>
+                  </div>
+                  <div className="mt-4">
+                    <label className={ui.label}>成员昵称</label>
+                    <input autoFocus className={ui.field} value={memberDraft} onChange={(e) => setMemberDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addMemberName(); } }} placeholder="例如：朱远雅" />
+                  </div>
+                  <div className="mt-5 flex justify-end gap-2">
+                    <button type="button" onClick={() => { setMemberDialogOpen(false); setMemberDraft(""); }} className={ui.btnGhost}>取消</button>
+                    <button type="button" onClick={addMemberName} disabled={!memberDraft.trim()} className="inline-flex items-center justify-center rounded-xl bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40">添加</button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </>
         ) : null}
       </div>
