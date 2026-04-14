@@ -26,12 +26,35 @@ type AppealLogItem = {
 
 const FALLBACK_NAMES = ["队长", "小明", "小红", "李华", "成员E", "成员F", "成员G", "成员H"];
 const METRIC_WEIGHTS = ["25%", "20%", "15%", "15%", "15%", "10%"];
+const RESPONSIBILITY_RULES = [
+  "全部按期完成：1.00",
+  "出现逾期但最终自行完成：0.90",
+  "逾期占比超过 50% 仍未完成：0.75",
+  "任务被接管：0.35",
+  "明确拒绝任务：0.20"
+] as const;
+const PENALTY_RULES = [
+  "每次逾期未处理：+8",
+  "每次被催告后仍无响应：+12",
+  "每次被接管：+20",
+  "明确拒绝任务：+25"
+] as const;
+const CREDIT_RULES = [
+  "信用分默认 100 分，按项目累计沉淀。",
+  "每次逾期未处理：信用分 -8。",
+  "每次被催告后仍无响应：信用分 -12。",
+  "每次任务被接管：信用分 -20。",
+  "明确拒绝任务：信用分 -25。",
+  "信用分最低记为 0，不出现负分。"
+] as const;
+const ZERO_SHOT_RULE_DESCRIPTION =
+  "定义：单轮 AI 生成 + 极低人工修改 + 无二次约束，属于无脑使用 AI 直接出稿。命中后，“过程投入”维度上限降至 60，并在最终分阶段触发额外降权。";
 
 const SCORE_RULE_ITEMS = [
   {
     label: "任务质量",
     weight: "25%",
-    description: "产出可用性、逻辑完整性、评审通过率与返工情况",
+    description: "聚焦最终产出质量：内容可用性、逻辑完整性、评审通过率与返工情况",
     source: "Task.status + ActionLog.actionType + ActionLog.description"
   },
   {
@@ -56,13 +79,13 @@ const SCORE_RULE_ITEMS = [
     label: "时效责任",
     weight: "15%",
     description:
-      "按逾期占比扣分（逾期时长/任务总时长）：0%=100，(0,10%]=80，(10%,25%]=65，(25%,50%]=45，(50%,100%]=30，>100%=20；接管任务按最重 20",
-    source: "Task.warningLevel + Task.status"
+      "按逾期占比扣分：0%=100；(0,10%]=80；(10%,25%]=65；(25%,50%]=45；(50%,100%]=30；>100%=20；被接管任务按最重档记 20",
+    source: "Task.deadline + Task.status + ActionLog.createdAt"
   },
   {
     label: "信用记录",
     weight: "10%",
-    description: "成员长期履约信用分（默认 100），受逾期/接管/拒绝等机制影响",
+    description: "成员长期履约信用分，默认 100，受逾期、失联、被接管、拒绝任务影响",
     source: "User.creditScore"
   }
 ] as const;
@@ -418,7 +441,7 @@ export function ProjectAnalyticsPage({ projectId }: { projectId: string }) {
             <div>
               <h2 className="text-lg font-semibold text-slate-900">贡献度评分规则</h2>
               <p className="mt-1 text-sm text-slate-600">
-                最终分 = 加权基础分 × 责任系数 - 违规惩罚。责任系数：正常 1.00 / 轻微逾期 0.85 / 严重逾期 0.60 / 任务被接管 0.35 / 拒绝任务 0.20。
+                最终分 = 加权基础分 × 责任系数 - 违规惩罚。6 个维度先形成基础分，再根据最终履约结果乘以责任系数；拖欠 DDL、失联不处理、被接管或拒绝任务，会同时影响时效责任、信用记录和最终扣分。
               </p>
             </div>
             <div className="rounded-full bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">数据每 15 秒自动刷新</div>
@@ -435,6 +458,41 @@ export function ProjectAnalyticsPage({ projectId }: { projectId: string }) {
                 <div className="mt-2 text-[11px] text-slate-500">数据源：{rule.source}</div>
               </div>
             ))}
+          </div>
+
+          <div className="mt-4 grid gap-3 xl:grid-cols-3">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <div className="text-sm font-semibold text-amber-950">zero-shot 行为降权</div>
+              <p className="mt-1 text-xs leading-5 text-amber-900">{ZERO_SHOT_RULE_DESCRIPTION}</p>
+            </div>
+            <div className="rounded-xl border border-rose-200 bg-rose-50 p-3">
+              <div className="text-sm font-semibold text-rose-950">违规惩罚</div>
+              <div className="mt-2 space-y-1 text-xs leading-5 text-rose-900">
+                {PENALTY_RULES.map((rule) => (
+                  <div key={rule}>{rule}</div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-xl border border-sky-200 bg-sky-50 p-3">
+              <div className="text-sm font-semibold text-sky-950">责任系数与自动接管</div>
+              <div className="mt-2 space-y-1 text-xs leading-5 text-sky-900">
+                {RESPONSIBILITY_RULES.map((rule) => (
+                  <div key={rule}>{rule}</div>
+                ))}
+                <div className="pt-1">
+                  自动接管规则：当任务逾期占比达到 50% 且仍未完成时，系统将任务转入可接管状态，队长可一键重新分配。
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+            <div className="text-sm font-semibold text-slate-900">信用分如何计算</div>
+            <div className="mt-2 grid gap-1 text-xs leading-5 text-slate-600 md:grid-cols-2">
+              {CREDIT_RULES.map((rule) => (
+                <div key={rule}>{rule}</div>
+              ))}
+            </div>
           </div>
         </section>
 
