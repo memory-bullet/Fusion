@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx prisma *)",
+      "Bash(npx prisma@6 migrate dev --name add_task_notes_member_presets_joined_status --create-only)",
+      "Bash(npx prisma@6 migrate dev --name add_task_notes_member_presets_joined_status)",
+      "Bash(mkdir -p \"d:/codefile/Fusion-codex-fusion-mvp/src/app/api/tasks/[id]/rename\")",
+      "Bash(mkdir -p \"d:/codefile/Fusion-codex-fusion-mvp/src/app/api/tasks/[id]/notes\")",
+      "Bash(mkdir -p \"d:/codefile/Fusion-codex-fusion-mvp/src/app/api/projects/[id]/member-presets\")",
+      "Bash(mkdir -p \"d:/codefile/Fusion-codex-fusion-mvp/src/app/api/projects/[id]/activate-preset\")",
+      "Bash(npx prisma@6 migrate dev --name add_task_created_by)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(mkdir -p \"d:/codefile/Fusion-codex-fusion-mvp/src/app/api/projects/[id]/members\")",
+      "Bash(mkdir -p \"d:/codefile/Fusion-codex-fusion-mvp/src/app/api/projects/[id]/member-presets-delete\")",
+      "Bash(curl -s -X POST http://localhost:3000/api/projects -H \"Content-Type: application/json\" -d '{\"title\":\"test\",\"deadline\":\"2026-06-01T00:00:00Z\",\"ownerName\":\"组长A\"}' -c /tmp/test_cookies.txt)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000)",
+      "Bash(node -e \"const { PrismaClient } = require\\('@prisma/client'\\); console.log\\('Prisma available:', typeof PrismaClient\\)\")"
+    ]
+  }
+}

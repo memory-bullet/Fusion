@@ -1,0 +1,2 @@
+# Shell 脚本必须为 LF，否则 Linux 容器内 ENTRYPOINT 会报 no such file or directory
+*.sh text eol=lf

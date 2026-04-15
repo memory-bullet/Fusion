@@ -1,0 +1,70 @@
+﻿@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  background: #fafafa;
+  color: #171717;
+  min-height: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+.shell {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 16px 20px 32px;
+}
+
+.line-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.soft-panel {
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.state-badge {
+  border: 1px solid #d1d5db;
+  border-radius: 9999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.state-warning {
+  color: #b45309;
+  border-color: #fbbf24;
+  background: #fffbeb;
+}
+
+.state-critical {
+  color: #b91c1c;
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
+.state-normal {
+  color: #374151;
+  border-color: #d1d5db;
+  background: #f9fafb;
+}

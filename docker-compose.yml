@@ -1,0 +1,24 @@
+# 可选：本地 PostgreSQL（需已安装 Docker）。无 Docker 时默认用 SQLite 即可开发。
+# 使用：docker compose up -d
+# 然后在 .env 中设置 DATABASE_URL="postgresql://fusion:fusion@localhost:5432/fusion?schema=public"
+# 并将 prisma/schema.prisma 的 provider 改为 postgresql，再执行 prisma migrate diff 生成迁移（见 README）。
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fusion
+      POSTGRES_PASSWORD: fusion
+      POSTGRES_DB: fusion
+    ports:
+      - "5432:5432"
+    volumes:
+      - fusion_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fusion -d fusion"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  fusion_pgdata:

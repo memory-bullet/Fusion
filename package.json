@@ -1,0 +1,53 @@
+{
+  "name": "fusion-space-mvp",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/kill-port.js 3000 3002 && next dev -H 0.0.0.0 -p 3000",
+    "dev:clean": "node scripts/kill-port.js 3000 3002 && node scripts/rm-next.js && next dev -H 0.0.0.0 -p 3000",
+    "build": "prisma generate && next build",
+    "build:vercel": "prisma generate && prisma migrate deploy && next build",
+    "start": "next start",
+    "lint": "next lint",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "tsx prisma/seed.ts",
+    "db:reset": "prisma migrate reset --force"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@pdf-lib/fontkit": "^1.1.1",
+    "@prisma/client": "^6.19.3",
+    "@zxing/browser": "^0.1.5",
+    "@zxing/library": "^0.21.3",
+    "bcryptjs": "^3.0.3",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.511.0",
+    "mammoth": "^1.12.0",
+    "next": "15.3.2",
+    "nodemailer": "^6.9.16",
+    "openai": "^5.9.0",
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^1.1.1",
+    "qrcode": "^1.5.4",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.15.17",
+    "@types/nodemailer": "^6.4.17",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.1.4",
+    "@types/react-dom": "^19.1.5",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.26.0",
+    "eslint-config-next": "15.3.2",
+    "postcss": "^8.5.3",
+    "prisma": "^6.19.3",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}
