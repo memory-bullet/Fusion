@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Camera, Plus, X, Users, ChevronRight, FileText, Sparkles, ArrowRight } from "lucide-react";
 import { InviteQrScanner } from "@/components/invite-qr-scanner";
+import { PersonalCenter } from "@/components/personal-center";
+import { DraftSpaceCard } from "@/components/draft-space-card";
+import { ProjectCardMenu } from "@/components/project-card-menu";
 
 type MyProjectRow = {
   id: string;
@@ -54,7 +57,27 @@ function EmptyDraftSpace() {
 }
 
 // 项目卡片
-function ProjectCard({ project, onEnter }: { project: MyProjectRow; onEnter: (id: string) => void }) {
+function ProjectCard({
+  project,
+  onEnter,
+  onRename,
+  onDelete,
+  draggable,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+  isDragging
+}: {
+  project: MyProjectRow;
+  onEnter: (id: string) => void;
+  onRename: (projectId: string, newTitle: string) => Promise<void>;
+  onDelete: (projectId: string) => Promise<void>;
+  draggable?: boolean;
+  onDragStart?: () => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDragEnd?: () => void;
+  isDragging?: boolean;
+}) {
   const isOwner = project.role === "OWNER";
   const deadline = new Date(project.deadline);
   const now = new Date();
@@ -63,16 +86,24 @@ function ProjectCard({ project, onEnter }: { project: MyProjectRow; onEnter: (id
 
   return (
     <div
-      className={`${ui.card} flex cursor-pointer items-center gap-3 transition hover:border-neutral-300 hover:shadow-md`}
-      onClick={() => onEnter(project.id)}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => e.key === "Enter" && onEnter(project.id)}
+      className={`${ui.card} flex items-center gap-3 transition hover:border-neutral-300 hover:shadow-md ${
+        isDragging ? "opacity-50" : ""
+      }`}
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragEnd={onDragEnd}
     >
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-sm font-semibold text-neutral-600">
         {project.title.charAt(0)}
       </div>
-      <div className="min-w-0 flex-1">
+      <div
+        className="min-w-0 flex-1 cursor-pointer"
+        onClick={() => onEnter(project.id)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => e.key === "Enter" && onEnter(project.id)}
+      >
         <div className="flex items-center gap-2">
           <span className="truncate font-medium text-neutral-900">{project.title}</span>
           {isOwner && (
@@ -94,7 +125,27 @@ function ProjectCard({ project, onEnter }: { project: MyProjectRow; onEnter: (id
             : `还剩 ${daysLeft} 天`}
         </p>
       </div>
-      <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300" />
+      <ProjectCardMenu
+        projectId={project.id}
+        projectTitle={project.title}
+        inviteCode={project.inviteCode}
+        onRename={(newTitle) => onRename(project.id, newTitle)}
+        onDelete={() => onDelete(project.id)}
+        dragHandleProps={
+          draggable
+            ? {
+                onMouseDown: (e: React.MouseEvent) => e.stopPropagation()
+              }
+            : undefined
+        }
+      />
+      <button
+        type="button"
+        onClick={() => onEnter(project.id)}
+        className="shrink-0 rounded-lg p-1.5 text-neutral-300 hover:bg-neutral-50 hover:text-neutral-600"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </button>
     </div>
   );
 }
@@ -107,6 +158,7 @@ export default function HomePage() {
   // 项目列表
   const [myProjects, setMyProjects] = useState<MyProjectRow[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   // 新建项目表单
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [createTitle, setCreateTitle] = useState("");
@@ -163,6 +215,21 @@ export default function HomePage() {
 
   const isRegistered = Boolean(sessionUser?.email);
   const canUseApp = authReady && isRegistered;
+
+  // 更新全局昵称
+  async function handleUpdateNickname(newName: string) {
+    const res = await fetch("/api/auth/me", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newName })
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || "更新失败");
+    }
+    const data = await res.json();
+    setSessionUser(data.user);
+  }
 
   // 动态成员输入框
   function addPresetInput() {
@@ -262,8 +329,70 @@ export default function HomePage() {
     router.push(`/project/${id}`);
   }
 
-  // "我的任务草稿" 排在最前
-  const sortedProjects = [...myProjects].sort((a, b) => {
+  // 项目重命名
+  async function handleRenameProject(projectId: string, newTitle: string) {
+    const res = await fetch(`/api/projects/${projectId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: newTitle })
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || "重命名失败");
+    }
+    // 刷新项目列表
+    setMyProjects((prev) =>
+      prev.map((p) => (p.id === projectId ? { ...p, title: newTitle } : p))
+    );
+  }
+
+  // 删除项目
+  async function handleDeleteProject(projectId: string) {
+    const res = await fetch(`/api/projects/${projectId}`, { method: "DELETE" });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || "删除失败");
+    }
+    // 刷新项目列表
+    setMyProjects((prev) => prev.filter((p) => p.id !== projectId));
+  }
+
+  // 拖拽排序
+  function handleDragStart(index: number) {
+    setDraggedIndex(index);
+  }
+
+  function handleDragOver(e: React.DragEvent, index: number) {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === index) return;
+
+    const newProjects = [...sortedOtherProjects];
+    const draggedItem = newProjects[draggedIndex];
+    newProjects.splice(draggedIndex, 1);
+    newProjects.splice(index, 0, draggedItem);
+
+    // 更新排序
+    const updatedProjects = myProjects.map((p) => {
+      if (p.title === "我的任务草稿") return p;
+      const newIndex = newProjects.findIndex((np) => np.id === p.id);
+      return newIndex >= 0 ? newProjects[newIndex] : p;
+    });
+    setMyProjects(updatedProjects);
+    setDraggedIndex(index);
+  }
+
+  function handleDragEnd() {
+    setDraggedIndex(null);
+    // 可选：保存排序到服务器
+    // saveProjectOrder(sortedOtherProjects.map(p => p.id));
+  }
+
+  // 识别草稿空间和其他项目
+  const draftSpace = myProjects.find((p) => p.title === "我的任务草稿");
+  const otherProjects = myProjects.filter((p) => p.title !== "我的任务草稿");
+
+  // 其他项目按角色和更新时间排序
+  const sortedOtherProjects = [...otherProjects].sort((a, b) => {
     if (a.role === "OWNER" && b.role !== "OWNER") return -1;
     if (a.role !== "OWNER" && b.role === "OWNER") return 1;
     return 0;
@@ -276,14 +405,18 @@ export default function HomePage() {
         {/* 顶部标题区 */}
         <header className="mb-6">
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">Fusion Space</h1>
-          {canUseApp ? (
-            <div className="mt-2 flex items-center gap-2 text-sm text-neutral-500">
-              <span className="font-medium text-neutral-700">{sessionUser!.name}</span>
-              <span className="text-neutral-300">·</span>
-              <span className="max-w-[200px] truncate">{sessionUser!.email}</span>
-            </div>
-          ) : null}
         </header>
+
+        {/* 个人中心 */}
+        {canUseApp && sessionUser ? (
+          <div className="mb-6">
+            <PersonalCenter
+              email={sessionUser.email || ""}
+              globalNickname={sessionUser.name}
+              onNicknameUpdate={handleUpdateNickname}
+            />
+          </div>
+        ) : null}
 
         {/* 未登录提示 */}
         {!authReady ? (
@@ -329,7 +462,7 @@ export default function HomePage() {
             <section>
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-neutral-500 uppercase tracking-wider">
-                  {sortedProjects.length > 0 ? `我的项目（${sortedProjects.length}）` : "我的项目"}
+                  我的项目
                 </h2>
                 {sessionUser && (
                   <button
@@ -344,19 +477,49 @@ export default function HomePage() {
 
               {projectsLoading ? (
                 <div className="space-y-3">
-                  {[1, 2].map((i) => (
+                  {[1, 2, 3].map((i) => (
                     <div key={i} className="h-16 animate-pulse rounded-2xl bg-neutral-100" />
                   ))}
                 </div>
-              ) : sortedProjects.length === 0 ? (
-                <div className={ui.card}>
-                  <EmptyDraftSpace />
-                </div>
               ) : (
-                <div className="space-y-2">
-                  {sortedProjects.map((p) => (
-                    <ProjectCard key={p.id} project={p} onEnter={enterProject} />
-                  ))}
+                <div className="space-y-3">
+                  {/* 草稿空间（置顶） */}
+                  {draftSpace && (
+                    <DraftSpaceCard
+                      projectId={draftSpace.id}
+                      inviteCode={draftSpace.inviteCode}
+                      onEnter={enterProject}
+                      onRename={(newTitle) => handleRenameProject(draftSpace.id, newTitle)}
+                      onDelete={() => handleDeleteProject(draftSpace.id)}
+                    />
+                  )}
+
+                  {/* 其他项目 */}
+                  {sortedOtherProjects.length > 0 && (
+                    <div className="space-y-2">
+                      {sortedOtherProjects.map((p, index) => (
+                        <ProjectCard
+                          key={p.id}
+                          project={p}
+                          onEnter={enterProject}
+                          onRename={handleRenameProject}
+                          onDelete={handleDeleteProject}
+                          draggable
+                          onDragStart={() => handleDragStart(index)}
+                          onDragOver={(e) => handleDragOver(e, index)}
+                          onDragEnd={handleDragEnd}
+                          isDragging={draggedIndex === index}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 空状态 */}
+                  {!draftSpace && sortedOtherProjects.length === 0 && (
+                    <div className={ui.card}>
+                      <EmptyDraftSpace />
+                    </div>
+                  )}
                 </div>
               )}
             </section>

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getWarningLevel } from "@/lib/warning";
 import { requireProjectMember } from "@/lib/auth";
 import { ensureDefaultProjectDocuments } from "@/lib/project-documents";
+import { toPublicUser } from "@/lib/user-serialize";
 import { runDeadlineUltimatumEngine } from "@/lib/deadline-ultimatum";
 
 function parseKeyDeliverables(raw: string | null | undefined): string[] | null {
@@ -100,6 +101,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
         workloadPoints: true,
         createdAt: true,
         deadline: true,
+        createdById: true,
         assignee: {
           select: { id: true, name: true, accumulatedPoints: true, creditScore: true }
         }
@@ -129,35 +131,23 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     const projectRest = project;
     const milestonesSorted = null;
 
-    // 构建成员 ID → displayName 映射（项目内昵称）
-    const memberDisplayNames = new Map(
-      members.map((m) => [m.userId, m.displayName ?? null])
-    );
-
     const publicMembers = members.map((m) => ({
-      id: m.user.id,
-      // 项目内显示昵称：displayName > User.name
-      name: m.displayName ?? m.user.name,
-      accumulatedPoints: m.user.accumulatedPoints,
-      creditScore: m.user.creditScore,
+      ...toPublicUser(m.user),
       role: m.role,
-      joinedStatus: m.joinedStatus as "ACTIVATED" | "NOT_ACTIVATED"
+      joinedStatus: m.joinedStatus as "ACTIVATED" | "NOT_ACTIVATED",
+      projectNickname: m.projectNickname
     }));
-    const publicMe = me ? {
-      id: me.id,
-      name: memberDisplayNames.get(me.id) ?? me.name,
-      accumulatedPoints: me.accumulatedPoints,
-      creditScore: me.creditScore
-    } : null;
+    const publicMe = me ? toPublicUser(me) : null;
     const publicLogs = logs.map((log) => ({
       ...log,
-      user: {
-        id: log.user.id,
-        name: memberDisplayNames.get(log.user.id) ?? log.user.name,
-        accumulatedPoints: log.user.accumulatedPoints,
-        creditScore: log.user.creditScore
-      }
+      user: toPublicUser(log.user)
     }));
+
+    // 创建成员昵称映射表
+    const memberNicknameMap = new Map(
+      members.map((m) => [m.userId, m.projectNickname?.trim() || m.user.name])
+    );
+
     const publicTasks = tasksLatest.map((task: any) => ({
       ...task,
       sourceLabel: task.sourceLabel ?? null,
@@ -166,10 +156,10 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       assignee: task.assignee
         ? {
             id: task.assignee.id,
-            // 任务负责人优先使用项目内昵称
-            name: memberDisplayNames.get(task.assignee.id) ?? task.assignee.name
+            name: memberNicknameMap.get(task.assignee.id) || task.assignee.name
           }
-        : null
+        : null,
+      createdById: task.createdById
     }));
 
     return NextResponse.json({

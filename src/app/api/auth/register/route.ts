@@ -16,6 +16,11 @@ function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
+function generateInviteCode(): string {
+  const rand = Math.floor(Math.random() * 9000) + 1000;
+  return `FUSION-${rand}`;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = registerSchema.parse(await request.json());
@@ -27,19 +32,52 @@ export async function POST(request: NextRequest) {
     }
 
     const passwordHash = await hashPassword(body.password);
-    const user = await prisma.user.create({
-      data: {
-        name: body.name.trim(),
-        email,
-        passwordHash
-      }
+
+    // 创建用户并自动创建个人草稿空间
+    const result = await prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          name: body.name.trim(),
+          email,
+          passwordHash
+        }
+      });
+
+      // 创建个人草稿空间（默认项目）
+      const draftProject = await tx.project.create({
+        data: {
+          title: "我的任务草稿",
+          deadline: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1年后
+          inviteCode: generateInviteCode()
+        }
+      });
+
+      // 将用户设为草稿空间的 OWNER
+      await tx.projectMember.create({
+        data: {
+          projectId: draftProject.id,
+          userId: user.id,
+          role: "OWNER"
+        }
+      });
+
+      await tx.actionLog.create({
+        data: {
+          projectId: draftProject.id,
+          userId: user.id,
+          actionType: "PROJECT_CREATED",
+          description: `${user.name} created personal draft space`
+        }
+      });
+
+      return { user, draftProject };
     });
 
     const cookieStore = await cookies();
-    cookieStore.set(USER_COOKIE, user.id, sessionCookieOptions());
+    cookieStore.set(USER_COOKIE, result.user.id, sessionCookieOptions());
 
     return NextResponse.json({
-      user: { id: user.id, name: user.name, email: user.email }
+      user: { id: result.user.id, name: result.user.name, email: result.user.email }
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

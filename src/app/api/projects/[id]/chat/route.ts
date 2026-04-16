@@ -19,40 +19,39 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
 
     const rows = await prisma.projectChatMessage.findMany({
       where: { projectId },
-      include: {
-        user: { select: { id: true, name: true } },
-        project: {
-          include: {
-            members: {
-              where: { userId: undefined }, // filled dynamically below
-              select: { userId: true, displayName: true }
-            }
-          }
-        }
-      },
+      include: { user: { select: { id: true, name: true } } },
       orderBy: { createdAt: "asc" },
       take: 200
     });
 
-    // 预先加载 ProjectMember displayName 映射
-    const memberRows = await prisma.projectMember.findMany({
+    // 获取项目成员信息以获取项目内昵称
+    const members = await prisma.projectMember.findMany({
       where: { projectId },
-      select: { userId: true, displayName: true }
+      select: { userId: true, projectNickname: true }
     });
-    const displayNameMap = new Map(memberRows.map((m) => [m.userId, m.displayName ?? null]));
+    const memberMap = new Map(members.map(m => [m.userId, m.projectNickname]));
 
     return NextResponse.json({
-      messages: rows.map((m) => ({
-        id: m.id,
-        role: m.role,
-        content: m.content,
-        createdAt: m.createdAt.toISOString(),
-        user: m.user ? {
-          id: m.user.id,
-          // 项目内显示昵称
-          name: displayNameMap.get(m.user.id) ?? m.user.name
-        } : null
-      }))
+      messages: rows.map((m) => {
+        if (!m.user) return {
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          createdAt: m.createdAt.toISOString(),
+          user: null
+        };
+
+        const projectNickname = memberMap.get(m.user.id);
+        const displayName = projectNickname?.trim() || m.user.name;
+
+        return {
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          createdAt: m.createdAt.toISOString(),
+          user: { id: m.user.id, name: displayName }
+        };
+      })
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "加载失败";

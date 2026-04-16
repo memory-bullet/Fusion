@@ -8,15 +8,16 @@ datasource db {
 }
 
 model User {
-  id                String               @id @default(cuid())
+  id                String             @id @default(cuid())
   name              String
-  email             String?              @unique
+  email             String?            @unique
   passwordHash      String?
-  creditScore       Int                  @default(100)
-  accumulatedPoints Int                  @default(0)
-  createdAt         DateTime             @default(now())
+  creditScore       Int                @default(100)
+  accumulatedPoints Int                @default(0)
+  createdAt         DateTime           @default(now())
   memberships       ProjectMember[]
-  assignedTasks     Task[]
+  assignedTasks     Task[]   @relation("TaskAssignee")
+  createdTasks      Task[]   @relation("TaskCreator")
   logs              ActionLog[]
   authoredDocuments ProjectDocument[]
   chatMessages      ProjectChatMessage[]
@@ -26,25 +27,25 @@ model User {
 }
 
 model Project {
-  id                   String               @id @default(cuid())
-  title                String
-  inviteCode           String               @unique
-  contextSummary       String               @default("No context yet")
-  keyDeliverables      String?
-  assignmentMilestones String?
-  progressDigest       String?
-  progressDigestAt     DateTime?
-  status               String               @default("ACTIVE")
-  deadline             DateTime
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
-  members              ProjectMember[]
-  tasks                Task[]
-  logs                 ActionLog[]
-  documents            ProjectDocument[]
-  chatMessages         ProjectChatMessage[]
-  notifications        UserNotification[]
-  presets              MemberPreset[]
+  id                String          @id @default(cuid())
+  title             String
+  inviteCode        String          @unique
+  contextSummary        String          @default("No context yet")
+  keyDeliverables       String?
+  assignmentMilestones  String?
+  progressDigest        String?
+  progressDigestAt      DateTime?
+  status                String          @default("ACTIVE")
+  deadline          DateTime
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  members           ProjectMember[]
+  tasks             Task[]
+  logs              ActionLog[]
+  documents         ProjectDocument[]
+  chatMessages      ProjectChatMessage[]
+  notifications     UserNotification[]
+  memberPresets     MemberPreset[]
 }
 
 /// 项目内共享 AI 对话（全员可见同一会话历史）
@@ -64,21 +65,21 @@ model ProjectChatMessage {
 }
 
 model ProjectDocument {
-  id               String   @id @default(cuid())
-  projectId        String
-  authorId         String
-  title            String
-  content          String   @default("")
+  id        String   @id @default(cuid())
+  projectId String
+  authorId  String
+  title     String
+  content   String   @default("")
   /// 上传者对作品的文字说明（作业描述、版本说明等）
-  description      String   @default("")
+  description       String  @default("")
   /// 原始文件名（有则表示磁盘上有对应上传文件）
-  originalFileName String?
-  mimeType         String?
-  fileSize         Int?
+  originalFileName  String?
+  mimeType          String?
+  fileSize          Int?
   /// 相对 uploads 根目录的路径，如 projectId/docId/name.ext
-  storageKey       String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  storageKey        String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   author  User    @relation(fields: [authorId], references: [id], onDelete: Cascade)
@@ -87,13 +88,14 @@ model ProjectDocument {
 }
 
 model ProjectMember {
-  id           String   @id @default(cuid())
-  projectId    String
-  userId       String
-  role         String   @default("MEMBER")
-  joinedStatus String   @default("ACTIVATED")
-  joinedAt     DateTime @default(now())
-  displayName  String?
+  id              String   @id @default(cuid())
+  projectId       String
+  userId          String
+  role            String   @default("MEMBER")
+  joinedStatus    String   @default("ACTIVATED")
+  /// 项目内昵称（优先显示，为空则显示 user.name）
+  projectNickname String?
+  joinedAt        DateTime @default(now())
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -101,23 +103,11 @@ model ProjectMember {
   @@unique([projectId, userId])
 }
 
-model MemberPreset {
-  id          String   @id @default(cuid())
-  projectId   String
-  presetName  String
-  activated   Boolean  @default(false)
-  activatedBy String?
-  createdAt   DateTime @default(now())
-
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  @@index([projectId])
-}
-
 model Task {
   id                      String    @id @default(cuid())
   projectId               String
   assigneeId              String?
+  createdById             String?
   title                   String
   sourceLabel             String?
   workloadPoints          Int
@@ -129,27 +119,14 @@ model Task {
   ultimatumLevel          String    @default("NONE")
   ultimatumWarnNotifiedAt DateTime?
   ultimatumRedNotifiedAt  DateTime?
+  deletedAt               DateTime?
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
-  deletedAt               DateTime?
 
-  project  Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  assignee User?      @relation(fields: [assigneeId], references: [id])
+  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignee User?   @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  createdBy User? @relation("TaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
   notes    TaskNote[]
-}
-
-model TaskNote {
-  id        String   @id @default(cuid())
-  taskId    String
-  userId    String
-  content   String   @default("")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([taskId, userId])
 }
 
 model ActionLog {
@@ -166,18 +143,18 @@ model ActionLog {
 
 /// 站内信：登录用户收件箱，可关联项目与外链
 model UserNotification {
-  id        String    @id @default(cuid())
-  userId    String
-  projectId String?
-  kind      String
-  title     String
-  body      String
-  actionUrl String?
-  readAt    DateTime?
-  createdAt DateTime  @default(now())
+  id          String    @id @default(cuid())
+  userId      String
+  projectId   String?
+  kind        String
+  title       String
+  body        String
+  actionUrl   String?
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
 
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project         Project?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
   emailDeliveries EmailOutbox[]
 
   @@index([userId, readAt])
@@ -186,20 +163,49 @@ model UserNotification {
 
 /// 出站邮件记录（可扩展为异步队列重试）
 model EmailOutbox {
-  id                    String    @id @default(cuid())
+  id                    String   @id @default(cuid())
   userId                String?
   toAddress             String
   subject               String
   textBody              String
-  status                String    @default("PENDING")
+  status                String   @default("PENDING")
   errorMessage          String?
   relatedNotificationId String?
-  createdAt             DateTime  @default(now())
+  createdAt             DateTime @default(now())
   sentAt                DateTime?
 
-  user                User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
-  relatedNotification UserNotification? @relation(fields: [relatedNotificationId], references: [id], onDelete: SetNull)
+  user                User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  relatedNotification UserNotification?  @relation(fields: [relatedNotificationId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([userId])
+}
+
+/// 个人任务备注（仅自己可见）
+model TaskNote {
+  id        String   @id @default(cuid())
+  taskId    String
+  userId    String
+  content   String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+}
+
+/// 预设成员（组长创建项目时预设昵称，未激活）
+model MemberPreset {
+  id          String   @id @default(cuid())
+  projectId   String
+  presetName  String
+  activated   Boolean  @default(false)
+  activatedBy String?
+  createdAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
 }

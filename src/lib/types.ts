@@ -2,6 +2,25 @@ import type { AssignmentMilestone } from "@/lib/assignment-milestones";
 import { TaskStatus, WarningLevel } from "@/lib/domain";
 
 export type TaskUltimatumLevel = "NONE" | "WARN_3D" | "RED_24H";
+export type JoinedStatus = "ACTIVATED" | "NOT_ACTIVATED";
+
+export type TaskNote = {
+  id: string;
+  taskId: string;
+  userId: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MemberPreset = {
+  id: string;
+  projectId: string;
+  presetName: string;
+  activated: boolean;
+  activatedBy?: string | null;
+  createdAt: string;
+};
 
 export type DashboardTask = {
   id: string;
@@ -15,6 +34,9 @@ export type DashboardTask = {
   ultimatumLevel?: TaskUltimatumLevel;
   isReallocated: boolean;
   assignee: { id: string; name: string } | null;
+  deletedAt?: string | null;
+  /** 任务创建者 ID，用于判断成员是否有权删除自己创建的任务 */
+  createdById?: string | null;
 };
 
 export type DashboardDocument = {
@@ -62,7 +84,11 @@ export type DashboardData = {
     creditScore: number;
     /** ProjectMember.role：OWNER | MEMBER */
     role: string;
+    joinedStatus: JoinedStatus;
+    /** 项目内昵称（优先显示，为空则显示 name） */
+    projectNickname?: string | null;
   }>;
+  presets?: MemberPreset[];
   tasks: DashboardTask[];
   logs: Array<{
     id: string;

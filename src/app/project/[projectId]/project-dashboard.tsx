@@ -23,6 +23,7 @@ import { ProjectAiChatPanel } from "@/components/project-ai-chat-panel";
 import { TaskDetailPanel } from "@/components/task-detail-panel";
 import { TaskItemRow } from "@/components/task-item-row";
 import { DashboardTask } from "@/lib/types";
+import { getDisplayName } from "@/lib/display-name";
 
 type Props = {
   projectId: string;
@@ -145,11 +146,8 @@ export function ProjectDashboard({ projectId }: Props) {
         <ProjectHero
           project={data.project}
           title={data.project.title}
-          isOwner={data.isOwner}
           projectId={projectId}
-          onProjectUpdated={(newTitle) => {
-            refresh();
-          }}
+          isOwner={data.isOwner}
         />
 
         {/* S5: 我的任务列表 */}
@@ -278,7 +276,8 @@ export function ProjectDashboard({ projectId }: Props) {
                 const label = member.role === "OWNER"
                   ? (teamSize <= 1 ? "创建者" : "组长")
                   : "成员";
-                const initial = (member.name || "?").slice(0, 1);
+                const displayName = getDisplayName(member);
+                const initial = (displayName || "?").slice(0, 1);
                 const ongoing = data.tasks ? memberWorkloadPoints(data.tasks, member.id) : 0;
                 return (
                   <Link
@@ -293,7 +292,7 @@ export function ProjectDashboard({ projectId }: Props) {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                           <span className="text-sm font-semibold text-slate-900">
-                            {index + 1}. {member.name}
+                            {index + 1}. {displayName}
                           </span>
                           <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600">
                             {label}

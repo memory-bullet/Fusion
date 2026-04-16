@@ -136,17 +136,9 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
-    // 成员 ID → displayName 映射（项目内昵称）
-    const displayNameMap = new Map(
-      members.map((m) => [m.userId, m.displayName ?? null])
-    );
-
     const membersForAnalytics = members.map((m, index) => ({
-      id: m.user.id,
-      // 项目内显示昵称：displayName > User.name
-      name: normalizeName(m.displayName ?? m.user.name, index),
-      accumulatedPoints: m.user.accumulatedPoints,
-      creditScore: m.user.creditScore,
+      ...toPublicUser(m.user),
+      name: normalizeName(m.user.name, index),
       projectRole: m.role
     }));
 
@@ -157,12 +149,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       isReallocated: task.isReallocated ?? false,
       createdAt: task.createdAt ? task.createdAt.toISOString() : undefined,
       deadline: task.deadline.toISOString(),
-      assignee: task.assignee ? {
-        id: task.assignee.id,
-        name: displayNameMap.get(task.assignee.id) ?? task.assignee.name,
-        accumulatedPoints: task.assignee.accumulatedPoints,
-        creditScore: task.assignee.creditScore
-      } : null
+      assignee: task.assignee ? toPublicUser(task.assignee) : null
     }));
 
     const publicLogs = logs.map((log) => ({

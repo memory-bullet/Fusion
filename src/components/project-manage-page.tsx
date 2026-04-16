@@ -17,6 +17,7 @@ import { TaskBoard } from "@/components/task-board";
 import { ProjectAiChatPanel } from "@/components/project-ai-chat-panel";
 import type { TaskStatus } from "@/lib/domain";
 import { DashboardData, DashboardTask } from "@/lib/types";
+import { getDisplayName } from "@/lib/display-name";
 
 function statusTone(task: DashboardTask) {
   if (task.warningLevel === "CRITICAL") return "text-red-500";
@@ -517,9 +518,8 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
               ? "组长：上传并解析作业全文后，可编辑任务草稿并按阶段多次写入；刷新页面会丢失未确认的草稿。"
               : "查看任务与公告；上传与任务排期仅组长（项目创建者）可操作。"
           }
-          isOwner={data.isOwner}
           projectId={projectId}
-          onProjectUpdated={refresh}
+          isOwner={data.isOwner}
         />
         <div className="mb-6">
           <Link
@@ -786,7 +786,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                         >
                           {data.members.map((m) => (
                             <option key={m.id} value={m.id}>
-                              {m.name}
+                              {getDisplayName(m)}
                             </option>
                           ))}
                         </select>
@@ -1017,7 +1017,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                           <option value="">选择成员…</option>
                           {data.members.map((m) => (
                             <option key={m.id} value={m.id}>
-                              {m.name}
+                              {getDisplayName(m)}
                             </option>
                           ))}
                         </select>
@@ -1065,7 +1065,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                         {lanePts} 点
                       </span>
                       <span className={`inline-flex min-h-9 min-w-[100px] items-center justify-center rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-slate-700 ${laneTone(memberIndex)}`}>
-                        {member.name}
+                        {getDisplayName(member)}
                       </span>
                     </div>
                     <div
@@ -1162,6 +1162,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
 type ManagedMember = {
   id: string;
   name: string;
+  projectNickname?: string | null;
   role: string;
   joinedStatus: string;
 };
@@ -1249,7 +1250,7 @@ function TransferOwnerModal({
                     : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
                 }`}
               >
-                {m.name}
+                {getDisplayName(m)}
               </button>
             ))}
           </div>
@@ -1304,6 +1305,11 @@ function MemberManagementSection({
   const [transferDone, setTransferDone] = useState(false);
   // S6: 定向邀请 — 当前正在邀请的预设成员 ID
   const [invitingPresetId, setInvitingPresetId] = useState<string | null>(null);
+  // 编辑项目内昵称
+  const [editingNicknameMemberId, setEditingNicknameMemberId] = useState<string | null>(null);
+  const [nicknameInput, setNicknameInput] = useState("");
+  const [nicknameError, setNicknameError] = useState<string | null>(null);
+  const [nicknameSubmitting, setNicknameSubmitting] = useState(false);
 
   const activatedMembers = members.filter((m) => m.joinedStatus === "ACTIVATED");
   const currentOwner = members.find((m) => m.role === "OWNER");
@@ -1380,6 +1386,43 @@ function MemberManagementSection({
     }
   }
 
+  function startEditNickname(memberId: string, currentNickname: string | null | undefined) {
+    setEditingNicknameMemberId(memberId);
+    setNicknameInput(currentNickname || "");
+    setNicknameError(null);
+  }
+
+  function cancelEditNickname() {
+    setEditingNicknameMemberId(null);
+    setNicknameInput("");
+    setNicknameError(null);
+  }
+
+  async function saveNickname() {
+    if (!editingNicknameMemberId) return;
+    setNicknameError(null);
+    setNicknameSubmitting(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/members/nickname`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectNickname: nicknameInput.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setNicknameError(data.error || "保存失败");
+        return;
+      }
+      setEditingNicknameMemberId(null);
+      setNicknameInput("");
+      onRefresh();
+    } catch (e) {
+      setNicknameError(e instanceof Error ? e.message : "保存失败");
+    } finally {
+      setNicknameSubmitting(false);
+    }
+  }
+
   return (
     <>
       <section className="line-card mb-8 p-6">
@@ -1425,42 +1468,107 @@ function MemberManagementSection({
         {/* 已入驻成员列表 */}
         {activatedMembers.length > 0 ? (
           <div className="mb-4 space-y-2">
-            {activatedMembers.map((m) => (
-              <div key={m.id} className="flex items-center justify-between rounded-xl border border-slate-100 bg-white px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-slate-600">
-                    {m.name.charAt(0)}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-slate-900">{m.name}</span>
-                      {m.role === "OWNER" && (
-                        <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-600">
-                          {ownerLabel}
-                        </span>
-                      )}
-                      {m.role === "MEMBER" && (
-                        <span className="rounded-full bg-slate-50 px-2 py-0.5 text-xs text-slate-500">组员</span>
-                      )}
+            {activatedMembers.map((m) => {
+              const displayName = getDisplayName(m);
+              const isCurrentUser = m.id === currentUserId;
+              const isEditingThis = editingNicknameMemberId === m.id;
+
+              return (
+                <div key={m.id} className="rounded-xl border border-slate-100 bg-white px-4 py-3">
+                  {isEditingThis ? (
+                    // 编辑昵称模式
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={nicknameInput}
+                          onChange={(e) => setNicknameInput(e.target.value)}
+                          placeholder="输入项目内昵称"
+                          maxLength={40}
+                          className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-200"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-slate-500">
+                        <span>全局昵称：{m.name}</span>
+                      </div>
+                      {nicknameError && <p className="text-xs text-red-600">{nicknameError}</p>}
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={cancelEditNickname}
+                          disabled={nicknameSubmitting}
+                          className="flex-1 rounded-lg border border-slate-200 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          取消
+                        </button>
+                        <button
+                          type="button"
+                          onClick={saveNickname}
+                          disabled={nicknameSubmitting}
+                          className="flex-1 rounded-lg bg-slate-900 py-1.5 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+                        >
+                          {nicknameSubmitting ? "保存中…" : "保存"}
+                        </button>
+                      </div>
                     </div>
-                    {m.id === currentUserId && m.role !== "OWNER" && (
-                      <span className="text-xs text-slate-400">我</span>
-                    )}
-                  </div>
+                  ) : (
+                    // 正常显示模式
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-slate-600">
+                          {displayName.charAt(0)}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-slate-900">{displayName}</span>
+                            {m.role === "OWNER" && (
+                              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-600">
+                                {ownerLabel}
+                              </span>
+                            )}
+                            {m.role === "MEMBER" && (
+                              <span className="rounded-full bg-slate-50 px-2 py-0.5 text-xs text-slate-500">组员</span>
+                            )}
+                          </div>
+                          {isCurrentUser && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-slate-400">我</span>
+                              {m.projectNickname && (
+                                <span className="text-xs text-slate-400">（全局：{m.name}）</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {isCurrentUser && (
+                          <button
+                            type="button"
+                            onClick={() => startEditNickname(m.id, m.projectNickname)}
+                            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs text-slate-400 transition hover:bg-slate-50 hover:text-slate-600"
+                            title="编辑项目内昵称"
+                          >
+                            <UserCog className="h-3.5 w-3.5" />
+                            改昵称
+                          </button>
+                        )}
+                        {isOwner && m.role !== "OWNER" && (
+                          <button
+                            type="button"
+                            onClick={() => setKickMemberId(m.id)}
+                            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                            title="移出成员"
+                          >
+                            <UserMinus className="h-3.5 w-3.5" />
+                            移出
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                {isOwner && m.role !== "OWNER" && (
-                  <button
-                    type="button"
-                    onClick={() => setKickMemberId(m.id)}
-                    className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs text-slate-400 transition hover:bg-red-50 hover:text-red-600"
-                    title="移出成员"
-                  >
-                    <UserMinus className="h-3.5 w-3.5" />
-                    移出
-                  </button>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <p className="mb-4 text-sm text-slate-400">暂无已入驻成员。</p>

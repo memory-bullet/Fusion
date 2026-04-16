@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
     let presetActivated = false;
 
     await prisma.$transaction(async (tx) => {
-      // 激活预设（如果提供了 presetId）：设置项目内显示昵称，不覆盖全局 User.name
+      // 激活预设（如果提供了 presetId）
       if (body.presetId) {
         const preset = await tx.memberPreset.findUnique({ where: { id: body.presetId } });
         if (preset && preset.projectId === projectId && !preset.activated) {
@@ -56,47 +56,51 @@ export async function POST(request: NextRequest) {
             where: { id: body.presetId },
             data: { activated: true, activatedBy: userId }
           });
-          // 仅设置项目内显示昵称，保留全局用户名
-          await tx.projectMember.updateMany({
-            where: { projectId, userId },
-            data: { displayName: preset.presetName }
-          });
           presetActivated = true;
+
+          // 创建/更新成员关系，设置项目内昵称
+          if (!existingMember) {
+            await tx.projectMember.create({
+              data: {
+                projectId,
+                userId,
+                role: "MEMBER",
+                joinedStatus: "ACTIVATED",
+                projectNickname: preset.presetName
+              }
+            });
+          } else {
+            await tx.projectMember.update({
+              where: { projectId_userId: { projectId, userId } },
+              data: {
+                joinedStatus: "ACTIVATED",
+                projectNickname: preset.presetName
+              }
+            });
+          }
         }
       }
 
-      // 创建/确认成员关系
-      if (!existingMember) {
+      // 如果没有预设或预设激活失败，创建普通成员关系
+      if (!existingMember && !presetActivated) {
         await tx.projectMember.create({
           data: {
             projectId,
             userId,
             role: "MEMBER",
-            joinedStatus: "ACTIVATED",
-            displayName: body.presetId
-              ? (await tx.memberPreset.findUnique({ where: { id: body.presetId } }))?.presetName ?? null
-              : null
+            joinedStatus: "ACTIVATED"
           }
         });
+      }
+
+      // 记录日志
+      if (!existingMember || presetActivated) {
         await tx.actionLog.create({
           data: {
             projectId,
             userId,
-            actionType: "MEMBER_JOINED",
-            description: `${body.presetId ? "通过邀请链接" : "成员"} 加入项目`
-          }
-        });
-      } else if (presetActivated) {
-        await tx.projectMember.update({
-          where: { projectId_userId: { projectId, userId } },
-          data: { joinedStatus: "ACTIVATED" }
-        });
-        await tx.actionLog.create({
-          data: {
-            projectId,
-            userId,
-            actionType: "MEMBER_ACTIVATED",
-            description: "激活预设并加入项目"
+            actionType: presetActivated ? "MEMBER_ACTIVATED" : "MEMBER_JOINED",
+            description: presetActivated ? "通过邀请链接激活并加入项目" : "成员加入项目"
           }
         });
       }

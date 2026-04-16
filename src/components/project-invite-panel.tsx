@@ -26,12 +26,10 @@ export function ProjectInvitePanel({ inviteCode, presetId }: Props) {
     setOrigin(typeof window !== "undefined" ? window.location.origin : "");
   }, []);
 
-  // Generate QR code when qr tab is active
+  // Pre-generate QR code immediately when inviteLink is ready
   useEffect(() => {
-    if (tab !== "qr" || !inviteLink) {
-      setQrDataUrl(null);
-      return;
-    }
+    if (!inviteLink || qrDataUrl) return;
+
     let cancelled = false;
     void QRCode.toDataURL(inviteLink, {
       width: 220,
@@ -43,7 +41,7 @@ export function ProjectInvitePanel({ inviteCode, presetId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [tab, inviteLink]);
+  }, [inviteLink, qrDataUrl]);
 
   const copy = useCallback(async (key: string, text: string) => {
     try {
@@ -85,6 +83,9 @@ export function ProjectInvitePanel({ inviteCode, presetId }: Props) {
               key={t.key}
               type="button"
               onClick={() => setTab(t.key)}
+              onMouseEnter={() => {
+                if (t.key === "qr") setTab("qr");
+              }}
               className={`rounded-full px-3 py-1 text-xs font-medium transition ${
                 tab === t.key
                   ? "bg-white text-slate-900 shadow-sm"

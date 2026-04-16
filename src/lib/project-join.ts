@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/prisma";
 
+/**
+ * 已登录用户加入新项目：复用当前 User，不新建账号。
+ */
 export async function linkExistingUserToProject(userId: string, projectId: string) {
   const project = await prisma.project.findUnique({ where: { id: projectId } });
   if (!project) {
@@ -17,7 +20,8 @@ export async function linkExistingUserToProject(userId: string, projectId: strin
     data: {
       projectId,
       userId,
-      role: "MEMBER"
+      role: "MEMBER",
+      joinedStatus: "ACTIVATED"
     }
   });
 
@@ -34,18 +38,21 @@ export async function linkExistingUserToProject(userId: string, projectId: strin
   return { userId, projectId, alreadyMember: false as const };
 }
 
-export async function createMemberJoin(projectId: string, name: string) {
+/**
+ * 访客：新建 User 并加入项目（Cookie 识别身份）。
+ */
+export async function createMemberJoin(projectId: string, displayName: string) {
   const project = await prisma.project.findUnique({ where: { id: projectId } });
   if (!project) {
     throw new Error("Project not found");
   }
 
-  const trimmedName = name.trim();
-  if (!trimmedName) {
+  const name = displayName.trim();
+  if (!name) {
     throw new Error("Name is required");
   }
 
-  const user = await prisma.user.create({ data: { name: trimmedName } });
+  const user = await prisma.user.create({ data: { name } });
 
   await prisma.projectMember.create({
     data: {

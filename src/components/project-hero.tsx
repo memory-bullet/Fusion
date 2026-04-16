@@ -5,6 +5,7 @@ import { Pencil } from "lucide-react";
 import { AlertCountdownBadge } from "@/components/alert-countdown-badge";
 import { ProjectInviteChips } from "@/components/project-invite-chips";
 import { ProjectEditModal } from "@/components/project-edit-modal";
+import { ProjectSwitcher } from "@/components/project-switcher";
 import { DashboardData, DashboardTask } from "@/lib/types";
 
 export function ProjectHero({
@@ -39,15 +40,24 @@ export function ProjectHero({
     <>
       <section className="mb-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            {/* 项目标题 */}
             <h1 className="text-5xl font-semibold leading-tight tracking-tight truncate">
               {displayTitle}
             </h1>
+            {/* 项目切换器 */}
+            {projectId && (
+              <ProjectSwitcher
+                currentProjectId={projectId}
+                currentProjectTitle={displayTitle}
+              />
+            )}
+            {/* 编辑按钮 */}
             {isOwner && projectId && (
               <button
                 type="button"
                 onClick={() => setEditOpen(true)}
-                className="mt-1 shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                className="shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
                 title="项目设置"
               >
                 <Pencil className="h-4 w-4" />

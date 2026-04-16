@@ -2,8 +2,9 @@
 
 import type { DashboardTask } from "@/lib/types";
 import { memberWorkloadPoints } from "@/lib/member-workload";
+import { getDisplayName } from "@/lib/display-name";
 
-type Member = { id: string; name: string };
+type Member = { id: string; name: string; projectNickname?: string | null };
 
 export function MemberWorkloadStrip({
   members,
@@ -19,7 +20,8 @@ export function MemberWorkloadStrip({
   const rows = members
     .map((m) => ({
       ...m,
-      pts: memberWorkloadPoints(tasks, m.id)
+      pts: memberWorkloadPoints(tasks, m.id),
+      displayName: getDisplayName(m)
     }))
     .sort((a, b) => b.pts - a.pts);
 
@@ -34,7 +36,7 @@ export function MemberWorkloadStrip({
           <div key={m.id} className="flex min-w-[72px] flex-col items-center">
             <div
               className="mb-1 rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[11px] font-bold tabular-nums text-slate-900 shadow-sm"
-              title={`${m.name}：进行中任务合计 ${m.pts} 点工作量`}
+              title={`${m.displayName}：进行中任务合计 ${m.pts} 点工作量`}
             >
               {m.pts} 点
             </div>
@@ -43,7 +45,7 @@ export function MemberWorkloadStrip({
                 m.pts === 0 ? "bg-slate-50 text-slate-500" : "bg-slate-50"
               }`}
             >
-              {m.name}
+              {m.displayName}
             </div>
             <div className="mt-2 h-1.5 w-[72px] rounded-full bg-slate-100">
               <div
