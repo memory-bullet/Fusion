@@ -133,6 +133,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
     const publicMembers = members.map((m) => ({
       ...toPublicUser(m.user),
+      id: m.id, // ProjectMember.id，用于移出成员等操作（必须放在 toPublicUser 之后以覆盖 user.id）
+      userId: m.userId, // 添加 userId 字段以保留用户 ID
       role: m.role,
       joinedStatus: m.joinedStatus as "ACTIVATED" | "NOT_ACTIVATED",
       projectNickname: m.projectNickname
@@ -176,8 +178,6 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
         id: p.id,
         projectId: p.projectId,
         presetName: p.presetName,
-        activated: p.activated,
-        activatedBy: p.activatedBy,
         createdAt: p.createdAt.toISOString()
       })),
       tasks: publicTasks,

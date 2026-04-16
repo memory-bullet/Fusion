@@ -5,14 +5,16 @@ import { useCallback, useEffect, useState } from "react";
 import QRCode from "qrcode";
 
 type Props = {
-  inviteCode: string;
+  inviteCode: string; // 项目邀请码或预设成员专属邀请码
   /** 预设 ID，用于生成带 presetId 的邀请链接 */
   presetId?: string;
+  /** 预设成员名称，用于显示提示信息 */
+  presetName?: string;
 };
 
 type Tab = "code" | "link" | "qr";
 
-export function ProjectInvitePanel({ inviteCode, presetId }: Props) {
+export function ProjectInvitePanel({ inviteCode, presetId, presetName }: Props) {
   const [tab, setTab] = useState<Tab>("code");
   const [origin, setOrigin] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
@@ -21,6 +23,8 @@ export function ProjectInvitePanel({ inviteCode, presetId }: Props) {
   const inviteLink = origin
     ? `${origin}/?invite=${encodeURIComponent(inviteCode.trim())}${presetId ? `&preset=${encodeURIComponent(presetId)}` : ""}`
     : "";
+
+  const isPresetInvite = Boolean(presetName);
 
   useEffect(() => {
     setOrigin(typeof window !== "undefined" ? window.location.origin : "");
@@ -74,8 +78,12 @@ export function ProjectInvitePanel({ inviteCode, presetId }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-slate-100 px-5 pt-5 pb-0">
         <div>
-          <div className="text-sm font-medium text-slate-500">邀请协作者</div>
-          <h3 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">邀请加入</h3>
+          <div className="text-sm font-medium text-slate-500">
+            {isPresetInvite ? `邀请「${presetName}」加入` : "邀请协作者"}
+          </div>
+          <h3 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">
+            {isPresetInvite ? "专属邀请" : "邀请加入"}
+          </h3>
         </div>
         <div className="flex gap-1 rounded-full bg-slate-100 p-1">
           {tabs.map((t) => (
@@ -109,7 +117,9 @@ export function ProjectInvitePanel({ inviteCode, presetId }: Props) {
               </span>
             </div>
             <p className="text-center text-sm text-slate-500">
-              将邀请码分享给对方，对方在首页输入即可加入项目
+              {isPresetInvite
+                ? `将此专属邀请码（项目邀请码 + 昵称）分享给「${presetName}」，对方在首页输入即可加入项目并使用此昵称`
+                : "将邀请码分享给对方，对方在首页输入即可加入项目"}
             </p>
             <button
               type="button"

@@ -6,6 +6,7 @@ import { USER_COOKIE } from "@/lib/auth";
 import { sessionCookieOptions } from "@/lib/session-cookie";
 import { getRegisteredUserId } from "@/lib/require-registered-user";
 import { resolveProjectByInviteCode } from "@/lib/project-join";
+import { notifyUser } from "@/lib/notify-user";
 
 /**
  * POST /api/join-by-invite
@@ -51,11 +52,14 @@ export async function POST(request: NextRequest) {
       // 激活预设（如果提供了 presetId）
       if (body.presetId) {
         const preset = await tx.memberPreset.findUnique({ where: { id: body.presetId } });
-        if (preset && preset.projectId === projectId && !preset.activated) {
-          await tx.memberPreset.update({
-            where: { id: body.presetId },
-            data: { activated: true, activatedBy: userId }
+        console.log('[join-by-invite] Found preset:', preset ? { id: preset.id, name: preset.presetName } : null);
+
+        if (preset && preset.projectId === projectId) {
+          // 删除预设记录（而不是标记为已激活）
+          await tx.memberPreset.delete({
+            where: { id: body.presetId }
           });
+          console.log('[join-by-invite] Deleted preset:', body.presetId);
           presetActivated = true;
 
           // 创建/更新成员关系，设置项目内昵称
@@ -69,6 +73,7 @@ export async function POST(request: NextRequest) {
                 projectNickname: preset.presetName
               }
             });
+            console.log('[join-by-invite] Created new member with nickname:', preset.presetName);
           } else {
             await tx.projectMember.update({
               where: { projectId_userId: { projectId, userId } },
@@ -77,6 +82,7 @@ export async function POST(request: NextRequest) {
                 projectNickname: preset.presetName
               }
             });
+            console.log('[join-by-invite] Updated existing member with nickname:', preset.presetName);
           }
         }
       }
@@ -91,6 +97,7 @@ export async function POST(request: NextRequest) {
             joinedStatus: "ACTIVATED"
           }
         });
+        console.log('[join-by-invite] Created member without preset');
       }
 
       // 记录日志
@@ -104,6 +111,18 @@ export async function POST(request: NextRequest) {
           }
         });
       }
+    });
+
+    // 发送站内信通知
+    await notifyUser({
+      userId: reg.userId,
+      projectId,
+      kind: "PROJECT_JOINED",
+      title: "成功加入项目",
+      body: presetActivated
+        ? `你已成功加入项目，项目内昵称为「${preset?.presetName || ""}」`
+        : "你已成功加入项目",
+      actionUrl: `/project/${projectId}`
     });
 
     cookieStore.set(USER_COOKIE, userId, sessionCookieOptions());

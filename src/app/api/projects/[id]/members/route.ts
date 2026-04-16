@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserId } from "@/lib/auth";
+import { notifyUser } from "@/lib/notify-user";
 
 export async function DELETE(
   request: Request,
@@ -42,6 +43,16 @@ export async function DELETE(
     if (targetMember.role === "OWNER") {
       return NextResponse.json({ error: "不能移出组长，请先转让权限" }, { status: 400 });
     }
+
+    // 发送站内信通知
+    await notifyUser({
+      userId: targetMember.userId,
+      projectId,
+      kind: "MEMBER_REMOVED",
+      title: "你已被移出项目",
+      body: `你已被移出项目「${project.title}」`,
+      actionUrl: "/"
+    });
 
     await prisma.projectMember.delete({ where: { id: memberId } });
 
@@ -97,7 +108,13 @@ export async function GET(
       orderBy: { createdAt: "asc" }
     });
 
-    return NextResponse.json({ members, presets });
+    return NextResponse.json({
+      members,
+      presets: presets.map((p) => ({
+        id: p.id,
+        presetName: p.presetName
+      }))
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "加载成员失败" },

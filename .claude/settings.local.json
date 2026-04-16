@@ -15,7 +15,15 @@
       "Bash(mkdir -p \"d:/codefile/Fusion-codex-fusion-mvp/src/app/api/projects/[id]/member-presets-delete\")",
       "Bash(curl -s -X POST http://localhost:3000/api/projects -H \"Content-Type: application/json\" -d '{\"title\":\"test\",\"deadline\":\"2026-06-01T00:00:00Z\",\"ownerName\":\"组长A\"}' -c /tmp/test_cookies.txt)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000)",
-      "Bash(node -e \"const { PrismaClient } = require\\('@prisma/client'\\); console.log\\('Prisma available:', typeof PrismaClient\\)\")"
+      "Bash(node -e \"const { PrismaClient } = require\\('@prisma/client'\\); console.log\\('Prisma available:', typeof PrismaClient\\)\")",
+      "Bash(curl -s http://localhost:3000)",
+      "Bash(curl -s http://localhost:3000/api/projects/test/dashboard)",
+      "Bash(cat)",
+      "Read(//tmp/**)",
+      "Bash(ls -la *.md)"
+    ],
+    "additionalDirectories": [
+      "d:\\codefile\\Fusion-codex-fusion-mvp\\src\\components"
     ]
   }
 }

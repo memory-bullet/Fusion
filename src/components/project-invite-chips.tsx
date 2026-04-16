@@ -17,7 +17,6 @@ export function ProjectInviteChips({ inviteCode, presetId }: Props) {
   const [hovering, setHovering] = useState<HoverCard | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const [showQr, setShowQr] = useState(false);
 
   // 直接从 window 计算 origin，避免 useEffect 时序问题
   const origin =
@@ -27,12 +26,10 @@ export function ProjectInviteChips({ inviteCode, presetId }: Props) {
       ? `${origin.replace(/\/$/, "")}/?invite=${encodeURIComponent(inviteCode.trim())}${presetId ? `&preset=${encodeURIComponent(presetId)}` : ""}`
       : "";
 
-  // 生成二维码
+  // 预生成二维码
   useEffect(() => {
-    if (!showQr || !inviteLink) {
-      setQrDataUrl(null);
-      return;
-    }
+    if (!inviteLink || qrDataUrl) return;
+
     let cancelled = false;
     void QRCode.toDataURL(inviteLink, {
       width: 160,
@@ -44,7 +41,7 @@ export function ProjectInviteChips({ inviteCode, presetId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [showQr, inviteLink]);
+  }, [inviteLink, qrDataUrl]);
 
   const copy = useCallback(async (key: string, text: string) => {
     try {
@@ -72,12 +69,6 @@ export function ProjectInviteChips({ inviteCode, presetId }: Props) {
     { key: "qr", label: "二维码", icon: "▣" }
   ];
 
-  function openQr() {
-    setShowQr(true);
-    // 延迟生成 QR，让 DOM 先渲染出容器
-    setTimeout(() => setHovering("qr"), 16);
-  }
-
   return (
     <div className="relative">
       {/* 三个入口按钮 */}
@@ -88,13 +79,11 @@ export function ProjectInviteChips({ inviteCode, presetId }: Props) {
             type="button"
             onMouseEnter={() => {
               setHovering(item.key);
-              if (item.key !== "qr") setShowQr(false);
             }}
             onClick={() => {
               // 点击即复制（快速操作）
               if (item.key === "code") void copy("code", inviteCode);
               if (item.key === "link") void copy("link", inviteLink);
-              if (item.key === "qr") openQr();
             }}
             className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
               hovering === item.key
@@ -116,7 +105,6 @@ export function ProjectInviteChips({ inviteCode, presetId }: Props) {
           className="absolute right-0 top-full z-50 mt-2 min-w-[200px] rounded-2xl border border-slate-200 bg-white p-4 shadow-xl"
           onMouseLeave={() => {
             setHovering(null);
-            if (hovering === "qr") setShowQr(false);
           }}
         >
           {/* 邀请码卡片 */}

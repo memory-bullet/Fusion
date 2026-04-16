@@ -1160,7 +1160,8 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
 // ─── 成员管理区块 ────────────────────────────────────────────────
 
 type ManagedMember = {
-  id: string;
+  id: string; // ProjectMember.id
+  userId?: string; // User.id
   name: string;
   projectNickname?: string | null;
   role: string;
@@ -1170,7 +1171,6 @@ type ManagedMember = {
 type ManagedPreset = {
   id: string;
   presetName: string;
-  activated: boolean;
 };
 
 function TransferOwnerModal({
@@ -1243,9 +1243,9 @@ function TransferOwnerModal({
               <button
                 key={m.id}
                 type="button"
-                onClick={() => setSelected(m.id)}
+                onClick={() => setSelected(m.userId || m.id)}
                 className={`w-full rounded-xl border px-4 py-3 text-left text-sm transition ${
-                  selected === m.id
+                  selected === (m.userId || m.id)
                     ? "border-slate-900 bg-slate-900 text-white"
                     : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
                 }`}
@@ -1317,7 +1317,7 @@ function MemberManagementSection({
   // 仅自己一人时显示"创建者"，有其他成员加入后改为"组长"
   const ownerLabel = activatedMemberCount <= 1 ? "创建者" : "组长";
   // 转让按钮：当前用户是组长，且团队至少有 2 人
-  const canShowTransfer = isOwner && currentOwner?.id === currentUserId && activatedMemberCount >= 2;
+  const canShowTransfer = isOwner && currentOwner?.userId === currentUserId && activatedMemberCount >= 2;
 
   function addPresetInput() {
     setPresetInputs((p) => [...p, ""]);
@@ -1470,7 +1470,7 @@ function MemberManagementSection({
           <div className="mb-4 space-y-2">
             {activatedMembers.map((m) => {
               const displayName = getDisplayName(m);
-              const isCurrentUser = m.id === currentUserId;
+              const isCurrentUser = m.userId === currentUserId;
               const isEditingThis = editingNicknameMemberId === m.id;
 
               return (
@@ -1579,7 +1579,7 @@ function MemberManagementSection({
           <div>
             <p className="mb-2 text-xs font-medium text-slate-500 uppercase tracking-wider">待入驻</p>
             <div className="space-y-1.5">
-              {presets.filter((p) => !p.activated).map((p) => (
+              {presets.map((p) => (
                 <div key={p.id} className="flex items-center justify-between rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-4 py-2.5">
                   <div className="flex items-center gap-2">
                     <div className="h-6 w-6 rounded-full border border-slate-200 bg-white text-center text-xs leading-6 text-slate-400">?</div>
@@ -1724,8 +1724,9 @@ function MemberManagementSection({
           <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setInvitingPresetId(null)} />
           <div className="relative z-10 w-full max-w-sm">
             <ProjectInvitePanel
-              inviteCode={inviteCode}
+              inviteCode={`${inviteCode} ${presets.find((p) => p.id === invitingPresetId)?.presetName || ""}`}
               presetId={invitingPresetId}
+              presetName={presets.find((p) => p.id === invitingPresetId)?.presetName}
             />
           </div>
         </div>

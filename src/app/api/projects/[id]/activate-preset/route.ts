@@ -25,14 +25,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (preset.projectId !== projectId) {
       return NextResponse.json({ error: "预设成员不属于本项目" }, { status: 400 });
     }
-    if (preset.activated) {
-      return NextResponse.json({ error: "该成员已激活" }, { status: 400 });
-    }
 
     await prisma.$transaction(async (tx) => {
-      await tx.memberPreset.update({
-        where: { id: body.presetId },
-        data: { activated: true, activatedBy: body.userId }
+      // 删除预设记录（而不是标记为已激活）
+      await tx.memberPreset.delete({
+        where: { id: body.presetId }
       });
 
       // 设置项目内昵称，而不是修改全局用户名
