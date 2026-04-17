@@ -79,6 +79,8 @@ export type DashboardData = {
   } | null;
   members: Array<{
     id: string;
+    /** 用户 ID：用于任务负责人、认领、指派等与 Task.assigneeId 对齐 */
+    userId: string;
     name: string;
     accumulatedPoints: number;
     creditScore: number;

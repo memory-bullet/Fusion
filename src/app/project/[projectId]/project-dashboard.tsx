@@ -187,15 +187,12 @@ export function ProjectDashboard({ projectId }: Props) {
           <section className="line-card rounded-[28px] p-6">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-sm font-medium text-slate-500">一、项目概述</div>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight">共享概况</h2>
+                <div className="text-lg font-bold text-slate-900">一、项目概述</div>
               </div>
               <Users2 className="h-5 w-5 text-slate-400" />
             </div>
             <div className="mt-4 rounded-[22px] bg-slate-50 p-4 text-sm leading-7 text-slate-600">
-              <div>截止时间：{new Date(data.project.deadline).toLocaleString()}</div>
-              <div>邀请码：{data.project.inviteCode}</div>
-              <div className="mt-3 whitespace-pre-wrap font-medium text-slate-800">共享共识（摘要）</div>
+              <div className="whitespace-pre-wrap font-medium text-slate-800">共享共识（摘要）</div>
               <div className="mt-1 whitespace-pre-wrap">{data.project.contextSummary}</div>
               {data.project.assignmentMilestones && data.project.assignmentMilestones.length > 0 ? (
                 <div className="mt-4 border-t border-slate-200 pt-4">
@@ -256,8 +253,7 @@ export function ProjectDashboard({ projectId }: Props) {
           <section className="line-card rounded-[28px] p-6">
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <div className="text-sm font-medium text-slate-500">二、现有成员</div>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight">团队与贡献入口</h2>
+                <div className="text-lg font-bold text-slate-900">二、现有成员</div>
                 <p className="mt-2 text-sm leading-relaxed text-slate-500">
                   点击成员进入贡献统计页，查看该成员六维雷达、与团队均分对比及实时趋势（数据随任务与日志刷新）。
                 </p>
@@ -316,8 +312,7 @@ export function ProjectDashboard({ projectId }: Props) {
 
           <section className="line-card rounded-[28px] p-6">
             <div className="mb-4 space-y-2">
-              <div className="text-sm font-medium text-slate-500">三、作业文件</div>
-              <h2 className="text-2xl font-semibold tracking-tight">上传与资料库</h2>
+              <div className="text-lg font-bold text-slate-900">三、作业文件</div>
               <p className="text-sm leading-relaxed text-slate-500">
                 支持 Word、PDF、Markdown、图片、音视频、常见建模与压缩包等。上传时请填写作品说明；成功上传会计入积分并写入操作日志，列表与成员分在约 15 秒内随轮询刷新。
               </p>

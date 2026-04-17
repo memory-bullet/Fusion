@@ -93,6 +93,13 @@ export function TaskBoard({
                           <>
                             <button
                               type="button"
+                              onClick={() => void onPatchStatus(task.id, "UNASSIGNED")}
+                              className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-800 hover:bg-slate-100"
+                            >
+                              撤回
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => void onPatchStatus(task.id, "IN_PROGRESS")}
                               className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-800 hover:bg-slate-100"
                             >
