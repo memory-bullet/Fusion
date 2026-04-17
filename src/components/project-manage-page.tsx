@@ -275,6 +275,10 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
   const [editingDeadlineTaskId, setEditingDeadlineTaskId] = useState<string | null>(null);
   const [deadlineInput, setDeadlineInput] = useState("");
   const [showAllLogs, setShowAllLogs] = useState(false);
+  const [inputMode, setInputMode] = useState<"file" | "text">("file");
+  const [textRequirement, setTextRequirement] = useState("");
+  const [textSubmitting, setTextSubmitting] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const activeUploadsRef = useRef(0);
   const MAX_CONCURRENT_UPLOADS = 2;
 
@@ -405,6 +409,65 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
       prev.filter((item) => item.status === "pending" || item.status === "uploading")
     );
   }, []);
+
+  // 提交文本要求
+  const runTextSubmit = useCallback(
+    async (text: string, isOwner: boolean, members: { id: string }[]) => {
+      setUploadError(null);
+      setCommitError(null);
+      if (!isOwner) {
+        setUploadError("仅项目创建者（组长）可在此提交文本并生成可编辑的任务草稿。");
+        return;
+      }
+      if (!text.trim()) {
+        setUploadError("请输入文本内容");
+        return;
+      }
+      setTextSubmitting(true);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/requirement-text`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: text.trim() })
+        });
+        const parsePayload = await res.json();
+        if (!res.ok) {
+          throw new Error(typeof parsePayload.error === "string" ? parsePayload.error : "文本处理失败");
+        }
+
+        await refresh();
+
+        const suggested = parsePayload.suggestedTasks;
+        if (Array.isArray(suggested) && suggested.length > 0 && members.length > 0) {
+          const normalized = suggested
+            .map((t: { title?: unknown; workloadPoints?: unknown; deadlineOffsetHours?: unknown }) => ({
+              title: String(t.title ?? "").trim(),
+              workloadPoints: Number(t.workloadPoints),
+              deadlineOffsetHours: Number(t.deadlineOffsetHours)
+            }))
+            .filter(
+              (t) =>
+                t.title.length > 0 &&
+                Number.isInteger(t.workloadPoints) &&
+                t.workloadPoints > 0 &&
+                Number.isInteger(t.deadlineOffsetHours) &&
+                t.deadlineOffsetHours >= 1 &&
+                t.deadlineOffsetHours <= 240
+            );
+          const rows = buildDraftFromSuggested(normalized, members);
+          setDraftTasks(rows.length > 0 ? rows : null);
+          setTextRequirement(""); // 清空输入框
+        } else {
+          setDraftTasks(null);
+        }
+      } catch (e) {
+        setUploadError(e instanceof Error ? e.message : "提交处理失败");
+      } finally {
+        setTextSubmitting(false);
+      }
+    },
+    [projectId, refresh]
+  );
 
   const commitDraft = useCallback(async () => {
     if (!draftTasks?.length) return;
@@ -628,7 +691,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
   }));
 
   const visibleLogs = dedupeLogs(data.logs).slice(0, 6);
-  const busy = uploadPhase !== "idle";
+  const busy = uploadQueue.some((item) => item.status === "uploading") || textSubmitting;
   const canCommitDraft = data.isOwner && Boolean(draftTasks?.length) && !commitLoading && !busy;
   const selectedTask = orderedTasks.find((task) => task.id === reallocateTaskId) ?? null;
 
@@ -763,13 +826,16 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                 <input
                   ref={fileInputRef}
                   type="file"
+                  multiple
                   className="sr-only"
                   accept={ACCEPT_UPLOAD}
                   disabled={busy || !data.isOwner}
                   onChange={(e) => {
-                    const file = e.target.files?.[0];
+                    const files = e.target.files;
                     e.target.value = "";
-                    if (file) void runUpload(file, data.isOwner, data.members);
+                    if (files && files.length > 0) {
+                      addFilesToQueue(Array.from(files), data.isOwner);
+                    }
                   }}
                 />
                 <button
@@ -795,8 +861,10 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                     e.stopPropagation();
                     setDragActive(false);
                     if (busy || !data.isOwner) return;
-                    const file = e.dataTransfer.files?.[0];
-                    if (file) void runUpload(file, data.isOwner, data.members);
+                    const files = e.dataTransfer.files;
+                    if (files && files.length > 0) {
+                      addFilesToQueue(Array.from(files), data.isOwner);
+                    }
                   }}
                   className={`rounded-[28px] border border-dashed bg-white p-10 text-center transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-60 ${
                     dragActive ? "border-blue-400 bg-blue-50/40" : "border-slate-200"
@@ -849,13 +917,13 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
             <div className="soft-panel rounded-[28px] p-6">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-3 text-lg font-semibold">
-                  {uploadPhase === "processing" ? (
+                  {busy ? (
                     <Loader2 className="h-5 w-5 shrink-0 animate-spin text-blue-500" />
                   ) : (
                     <RefreshCw className="h-5 w-5 shrink-0 text-slate-400" />
                   )}
                   <span className="truncate">
-                    {uploadPhase === "processing"
+                    {busy
                       ? "正在读取文档并由 AI 解析（可能需要 1～3 分钟）…"
                       : deliverables.length > 0
                         ? "AI 已提取关键产出物"
