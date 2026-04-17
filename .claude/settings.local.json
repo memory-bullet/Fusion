@@ -20,10 +20,15 @@
       "Bash(curl -s http://localhost:3000/api/projects/test/dashboard)",
       "Bash(cat)",
       "Read(//tmp/**)",
-      "Bash(ls -la *.md)"
+      "Bash(ls -la *.md)",
+      "Bash(git diff *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(npx eslint *)"
     ],
     "additionalDirectories": [
-      "d:\\codefile\\Fusion-codex-fusion-mvp\\src\\components"
+      "d:\\codefile\\Fusion-codex-fusion-mvp\\src\\components",
+      "d:\\codefile\\Fusion-codex-fusion-mvp\\src\\app\\api\\tasks\\[id]"
     ]
   }
 }

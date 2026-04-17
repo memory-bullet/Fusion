@@ -7,16 +7,18 @@ import { Loader2, Trash2, Copy, Check, X } from "lucide-react";
 type Props = {
   projectId: string;
   projectTitle: string;
+  projectDeadline: string;
   inviteCode: string;
   isOwner: boolean;
   open: boolean;
   onClose: () => void;
-  onUpdated: (newTitle: string) => void;
+  onUpdated: (newTitle: string, newDeadline?: string) => void;
 };
 
 export function ProjectEditModal({
   projectId,
   projectTitle,
+  projectDeadline,
   inviteCode,
   isOwner,
   open,
@@ -25,19 +27,28 @@ export function ProjectEditModal({
 }: Props) {
   const router = useRouter();
   const [title, setTitle] = useState(projectTitle);
+  const [deadline, setDeadline] = useState("");
   const [copied, setCopied] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 每次打开时同步最新项目名
+  // 每次打开时同步最新项目名和截止时间
   useEffect(() => {
     if (open) {
       setTitle(projectTitle);
+      // 转换为 datetime-local 格式 (YYYY-MM-DDTHH:mm)
+      const d = new Date(projectDeadline);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      const hours = String(d.getHours()).padStart(2, "0");
+      const minutes = String(d.getMinutes()).padStart(2, "0");
+      setDeadline(`${year}-${month}-${day}T${hours}:${minutes}`);
       setError(null);
       setCopied(false);
     }
-  }, [open, projectTitle]);
+  }, [open, projectTitle, projectDeadline]);
 
   const copyCode = useCallback(async () => {
     try {
@@ -52,7 +63,11 @@ export function ProjectEditModal({
   async function handleSave() {
     const trimmed = title.trim();
     if (!trimmed) { setError("项目名称不能为空"); return; }
-    if (trimmed === projectTitle) { onClose(); return; }
+    if (!deadline) { setError("截止时间不能为空"); return; }
+
+    const newDeadlineISO = new Date(deadline).toISOString();
+    const hasChanges = trimmed !== projectTitle || newDeadlineISO !== projectDeadline;
+    if (!hasChanges) { onClose(); return; }
 
     setSaving(true);
     setError(null);
@@ -60,11 +75,14 @@ export function ProjectEditModal({
       const res = await fetch(`/api/projects/${projectId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: trimmed })
+        body: JSON.stringify({
+          title: trimmed,
+          deadline: newDeadlineISO
+        })
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "保存失败"); return; }
-      onUpdated(trimmed);
+      onUpdated(trimmed, newDeadlineISO);
       onClose();
     } catch {
       setError("保存失败，请重试");
@@ -126,6 +144,19 @@ export function ProjectEditModal({
           </div>
         )}
 
+        {/* 项目截止时间 */}
+        {isOwner && (
+          <div className="mb-5">
+            <label className="mb-1.5 block text-xs font-medium text-slate-500">项目截止时间</label>
+            <input
+              type="datetime-local"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400 focus:bg-white"
+            />
+          </div>
+        )}
+
         {/* 只读展示（非组长） */}
         {!isOwner && (
           <div className="mb-5">
@@ -167,7 +198,7 @@ export function ProjectEditModal({
             <button
               type="button"
               onClick={handleSave}
-              disabled={saving || title.trim() === projectTitle}
+              disabled={saving}
               className="flex items-center justify-center gap-2 rounded-xl border border-slate-900 bg-slate-900 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
