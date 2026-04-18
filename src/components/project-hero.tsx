@@ -79,7 +79,6 @@ export function ProjectHero({
           </span>
           {activeTask ? <AlertCountdownBadge level={activeTask.warningLevel} /> : null}
         </div>
-        <p className="mt-4 max-w-3xl text-base text-muted">{subtitle ?? project.contextSummary}</p>
       </section>
 
       {/* 项目编辑弹窗 */}

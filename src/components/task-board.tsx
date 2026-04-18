@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { DashboardTask } from "@/lib/types";
 import type { TaskStatus } from "@/lib/domain";

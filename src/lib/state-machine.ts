@@ -1,4 +1,4 @@
-﻿import { TaskStatus } from "@/lib/domain";
+import { TaskStatus } from "@/lib/domain";
 
 const transitions: Record<TaskStatus, TaskStatus[]> = {
   UNASSIGNED: ["TODO"],
