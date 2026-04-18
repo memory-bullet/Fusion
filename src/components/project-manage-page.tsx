@@ -9,7 +9,7 @@ import { ReallocateDialog } from "@/components/reallocate-dialog";
 import { ProjectInvitePanel } from "@/components/project-invite-panel";
 import { DeadlineDisplay } from "@/components/deadline-display";
 import { useProjectDashboard } from "@/lib/use-project-dashboard";
-import { buildDraftFromSuggested, type TaskDraftRow } from "@/lib/task-draft";
+import { buildDraftFromSuggested, formatDateInput, type TaskDraftRow } from "@/lib/task-draft";
 import { formatMilestoneDueDisplay } from "@/lib/assignment-milestones";
 import { MemberWorkloadStrip } from "@/components/member-workload-strip";
 import { WorkloadShareBar } from "@/components/workload-share-bar";
@@ -47,28 +47,67 @@ function criticalLabel(task: DashboardTask) {
   return new Date(task.deadline).getTime() <= Date.now() ? "（已逾期）" : "（24 小时内）";
 }
 
-function ganttSlotIndex(deadline: string) {
-  const day = new Date(deadline).getDate();
-  const slots = [5, 6, 7, 8, 9, 10, 11];
-  const index = slots.indexOf(day);
-  return index >= 0 ? index : Math.max(0, Math.min(slots.length - 1, day - 5));
+function startOfDay(value: string | Date) {
+  const date = new Date(value);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-function ganttBarStyle(task: DashboardTask, laneIndex: number) {
-  const slot = ganttSlotIndex(task.deadline);
-  const left = Math.min(84, slot * 13.5 + laneIndex * 2.5);
-  const width = Math.min(30, 12 + task.workloadPoints * 1.8);
-
-  return {
-    left: `${left}%`,
-    width: `${width}%`
-  };
+function endOfDay(value: string | Date) {
+  const date = new Date(value);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
 }
 
-function ganttBarMetrics(task: DashboardTask) {
-  const slot = ganttSlotIndex(task.deadline);
-  const left = Math.min(84, slot * 13.5);
-  const width = Math.min(30, 12 + task.workloadPoints * 1.8);
+type GanttTick = {
+  label: string;
+  leftPercent: number;
+};
+
+type GanttRange = {
+  rangeStart: Date;
+  rangeEnd: Date;
+  totalMs: number;
+  dayLabels: string[];
+  ticks: GanttTick[];
+};
+
+function buildGanttRange(projectCreatedAt: string, projectDeadline: string): GanttRange {
+  const rangeStart = startOfDay(projectCreatedAt);
+  const rangeEnd = endOfDay(projectDeadline);
+  const totalMs = Math.max(24 * 60 * 60 * 1000, rangeEnd.getTime() - rangeStart.getTime());
+  const dayLabels: string[] = [];
+  const cursor = new Date(rangeStart);
+
+  while (cursor.getTime() <= rangeEnd.getTime()) {
+    dayLabels.push(`${cursor.getMonth() + 1}.${cursor.getDate()}`);
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  const dayCount = Math.max(1, dayLabels.length);
+  const tickStep = Math.max(1, Math.ceil(dayCount / 10));
+  const ticks: GanttTick[] = dayLabels
+    .map((label, index) => ({ label, index }))
+    .filter(({ index }) => index === 0 || index === dayCount - 1 || index % tickStep === 0)
+    .map(({ label, index }) => ({
+      label,
+      leftPercent: dayCount <= 1 ? 0 : (index / (dayCount - 1)) * 100
+    }));
+
+  return { rangeStart, rangeEnd, totalMs, dayLabels, ticks };
+}
+
+function clampTime(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function ganttBarMetrics(task: DashboardTask, ganttRange: GanttRange) {
+  const taskStart = startOfDay(task.createdAt ?? ganttRange.rangeStart);
+  const taskEnd = endOfDay(task.deadline);
+  const startMs = clampTime(taskStart.getTime(), ganttRange.rangeStart.getTime(), ganttRange.rangeEnd.getTime());
+  const endMs = clampTime(taskEnd.getTime(), ganttRange.rangeStart.getTime(), ganttRange.rangeEnd.getTime());
+  const safeEndMs = Math.max(startMs + 12 * 60 * 60 * 1000, endMs);
+  const left = ((startMs - ganttRange.rangeStart.getTime()) / ganttRange.totalMs) * 100;
+  const width = Math.max(4, ((safeEndMs - startMs) / ganttRange.totalMs) * 100);
+
   return {
     left,
     width,
@@ -76,14 +115,14 @@ function ganttBarMetrics(task: DashboardTask) {
   };
 }
 
-function buildLaneLayouts(tasks: DashboardTask[]) {
+function buildLaneLayouts(tasks: DashboardTask[], ganttRange: GanttRange) {
   const sorted = [...tasks].sort(
-    (a, b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime()
+    (a, b) => new Date(a.createdAt ?? a.deadline).getTime() - new Date(b.createdAt ?? b.deadline).getTime()
   );
   const rows: Array<Array<{ id: string; left: number; right: number }>> = [];
 
   return sorted.map((task) => {
-    const metrics = ganttBarMetrics(task);
+    const metrics = ganttBarMetrics(task, ganttRange);
     let rowIndex = 0;
 
     while (true) {
@@ -214,16 +253,37 @@ function classifyLog(actionType: string) {
   };
 }
 
+function translateStatusToken(token: string) {
+  if (token === "UNASSIGNED") return "待认领";
+  if (token === "TODO") return "待开始";
+  if (token === "IN_PROGRESS") return "进行中";
+  if (token === "BLOCKED") return "求助中";
+  if (token === "DONE") return "已完成";
+  if (token === "REALLOCATED") return "已重组";
+  return token;
+}
+
+function normalizeLegacyLogDescription(description: string) {
+  return description
+    .replace(
+      /^AI generated shared context summary(?: \(requirement-upload\))?$/,
+      "AI 已解析作业要求并生成共享上下文"
+    )
+    .replace(/回退至：([A-Z_]+)/g, (_, status: string) => `回退至：${translateStatusToken(status)}`)
+    .replace(/当前状态：([A-Z_]+)/g, (_, status: string) => `当前状态：${translateStatusToken(status)}`);
+}
+
 function splitLogDescription(description: string) {
+  const normalized = normalizeLegacyLogDescription(description);
   const penaltyMarker = "｜处罚：";
-  if (!description.includes(penaltyMarker)) {
+  if (!normalized.includes(penaltyMarker)) {
     return {
-      main: description,
+      main: normalized,
       penalty: null as string | null
     };
   }
 
-  const [main, penalty] = description.split(penaltyMarker);
+  const [main, penalty] = normalized.split(penaltyMarker);
   return {
     main,
     penalty: penalty ? `处罚：${penalty}` : null
@@ -274,6 +334,12 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
   const [taskActionMessage, setTaskActionMessage] = useState<string | null>(null);
   const [editingDeadlineTaskId, setEditingDeadlineTaskId] = useState<string | null>(null);
   const [deadlineInput, setDeadlineInput] = useState("");
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskWorkload, setNewTaskWorkload] = useState(10);
+  const [newTaskDeadline, setNewTaskDeadline] = useState("");
+  const [newTaskAssigneeId, setNewTaskAssigneeId] = useState("");
+  const [taskSaving, setTaskSaving] = useState(false);
+  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
   const [showAllLogs, setShowAllLogs] = useState(false);
   const [inputMode, setInputMode] = useState<"file" | "text">("file");
   const [textRequirement, setTextRequirement] = useState("");
@@ -298,7 +364,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
 
   // 处理单个文件上传
   const processUpload = useCallback(
-    (item: UploadQueueItem, members: { id: string }[]) => {
+    (item: UploadQueueItem, members: { id: string }[], projectDeadline: string) => {
       const url = `/api/projects/${projectId}/requirement-upload`;
 
       const xhr = uploadFileWithProgress(
@@ -347,7 +413,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                   t.deadlineOffsetHours >= 1 &&
                   t.deadlineOffsetHours <= 240
               );
-            const rows = buildDraftFromSuggested(normalized, members);
+            const rows = buildDraftFromSuggested(normalized, members, projectDeadline);
             setDraftTasks(rows.length > 0 ? rows : null);
           }
 
@@ -376,20 +442,23 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
   const processNextInQueue = useCallback(() => {
     if (!data?.isOwner || !data?.members) return;
 
-    setUploadQueue((prev) => {
-      const pending = prev.find((item) => item.status === "pending");
-      if (pending && activeUploadsRef.current < MAX_CONCURRENT_UPLOADS) {
-        activeUploadsRef.current += 1;
-        processUpload(pending, data.members);
-      }
-      return prev;
-    });
-  }, [data?.isOwner, data?.members, processUpload, MAX_CONCURRENT_UPLOADS]);
+    if (activeUploadsRef.current >= MAX_CONCURRENT_UPLOADS) return;
+
+    const pending = uploadQueue.find((item) => item.status === "pending");
+    if (!pending) return;
+
+    activeUploadsRef.current += 1;
+    processUpload(
+      pending,
+      data.members.map((member) => ({ id: member.userId })),
+      data.project.deadline
+    );
+  }, [data, processUpload, uploadQueue, MAX_CONCURRENT_UPLOADS]);
 
   // 监听队列变化，自动处理待上传文件
   useEffect(() => {
     processNextInQueue();
-  }, [uploadQueue, processNextInQueue]);
+  }, [processNextInQueue]);
 
   // 取消单个上传
   const cancelUpload = useCallback((id: string) => {
@@ -412,7 +481,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
 
   // 提交文本要求
   const runTextSubmit = useCallback(
-    async (text: string, isOwner: boolean, members: { id: string }[]) => {
+    async (text: string, isOwner: boolean, members: { id: string }[], projectDeadline: string) => {
       setUploadError(null);
       setCommitError(null);
       if (!isOwner) {
@@ -425,10 +494,12 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
       }
       setTextSubmitting(true);
       try {
-        const res = await fetch(`/api/projects/${projectId}/requirement-text`, {
+        const formData = new FormData();
+        formData.append("text", text.trim());
+
+        const res = await fetch(`/api/projects/${projectId}/requirement-upload`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: text.trim() })
+          body: formData
         });
         const parsePayload = await res.json();
         if (!res.ok) {
@@ -454,7 +525,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                 t.deadlineOffsetHours >= 1 &&
                 t.deadlineOffsetHours <= 240
             );
-          const rows = buildDraftFromSuggested(normalized, members);
+          const rows = buildDraftFromSuggested(normalized, members, projectDeadline);
           setDraftTasks(rows.length > 0 ? rows : null);
           setTextRequirement(""); // 清空输入框
         } else {
@@ -615,6 +686,78 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
     [refresh, scheduleProgressDigest]
   );
 
+  const createListTask = useCallback(async () => {
+    if (!data?.isOwner) return;
+    const title = newTaskTitle.trim();
+    if (!title) {
+      setTaskActionMessage("请先填写任务名称");
+      return;
+    }
+
+    setTaskSaving(true);
+    setTaskActionMessage(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/tasks/commit-draft`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceLabel: "组长手动新增",
+          tasks: [
+            {
+              title,
+              workloadPoints: Math.max(1, newTaskWorkload),
+              deadline: newTaskDeadline,
+              assigneeId: newTaskAssigneeId || undefined
+            }
+          ]
+        })
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof payload.error === "string" ? payload.error : "新增任务失败");
+      }
+
+      setNewTaskTitle("");
+      setNewTaskWorkload(10);
+      setTaskActionMessage("已新增任务");
+      await refresh();
+      scheduleProgressDigest();
+    } catch (e) {
+      setTaskActionMessage(e instanceof Error ? e.message : "新增任务失败");
+    } finally {
+      setTaskSaving(false);
+    }
+  }, [data?.isOwner, newTaskAssigneeId, newTaskDeadline, newTaskTitle, newTaskWorkload, projectId, refresh, scheduleProgressDigest]);
+
+  const deleteTask = useCallback(
+    async (taskId: string, title: string) => {
+      if (!data?.isOwner) return;
+      const confirmed = window.confirm(`确认删除任务「${title}」吗？`);
+      if (!confirmed) return;
+
+      setDeletingTaskId(taskId);
+      setTaskActionMessage(null);
+      try {
+        const res = await fetch(`/api/tasks/${taskId}`, {
+          method: "DELETE"
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(typeof payload.error === "string" ? payload.error : "删除任务失败");
+        }
+
+        setTaskActionMessage("已删除任务");
+        await refresh();
+        scheduleProgressDigest();
+      } catch (e) {
+        setTaskActionMessage(e instanceof Error ? e.message : "删除任务失败");
+      } finally {
+        setDeletingTaskId((current) => (current === taskId ? null : current));
+      }
+    },
+    [data?.isOwner, refresh, scheduleProgressDigest]
+  );
+
   const refreshProgressDigestNow = useCallback(async () => {
     setDigestBusy(true);
     setTaskActionMessage(null);
@@ -638,6 +781,18 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
   const nextSourceLabel = data
     ? `第${new Set(data.tasks.map((task) => task.sourceLabel).filter(Boolean)).size + 1}批作业要求`
     : "";
+
+  useEffect(() => {
+    if (!data) return;
+    if (newTaskDeadline) return;
+    setNewTaskDeadline(formatDateInput(new Date(data.project.deadline)));
+  }, [data, newTaskDeadline]);
+
+  useEffect(() => {
+    if (!data) return;
+    if (newTaskAssigneeId) return;
+    setNewTaskAssigneeId(data.members[0]?.userId ?? "");
+  }, [data, newTaskAssigneeId]);
 
   useEffect(() => {
     if (!data) return;
@@ -690,6 +845,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
     points: t.workloadPoints
   }));
 
+  const ganttRange = buildGanttRange(data.project.createdAt, data.project.deadline);
   const visibleLogs = dedupeLogs(data.logs).slice(0, 6);
   const busy = uploadQueue.some((item) => item.status === "uploading") || textSubmitting;
   const canCommitDraft = data.isOwner && Boolean(draftTasks?.length) && !commitLoading && !busy;
@@ -903,7 +1059,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                 <button
                   type="button"
                   disabled={busy || !data.isOwner || textRequirement.trim().length === 0}
-                  onClick={() => void runTextSubmit(textRequirement, data.isOwner, data.members)}
+                  onClick={() => void runTextSubmit(textRequirement, data.isOwner, data.members.map((member) => ({ id: member.userId })), data.project.deadline)}
                   className="w-full rounded-lg bg-blue-500 px-6 py-3 font-medium text-white transition hover:bg-blue-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {busy ? "处理中..." : "提交文本要求"}
@@ -1017,7 +1173,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                   <tr className="border-b border-line bg-slate-50 text-slate-600">
                     <th className="px-3 py-3 font-semibold">任务名称</th>
                     <th className="w-28 px-3 py-3 font-semibold">工作量</th>
-                    <th className="w-36 px-3 py-3 font-semibold">相对截止（小时）</th>
+                    <th className="w-36 px-3 py-3 font-semibold">截止时间（日期）</th>
                     <th className="min-w-[140px] px-3 py-3 font-semibold">负责人</th>
                     <th className="w-14 px-2 py-3" />
                   </tr>
@@ -1045,16 +1201,12 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                       </td>
                       <td className="px-3 py-2 align-middle">
                         <input
-                          type="number"
-                          min={1}
-                          max={240}
+                          type="date"
+                          min={new Date().toISOString().slice(0, 10)}
+                          max={new Date(data.project.deadline).toISOString().slice(0, 10)}
                           className="w-full rounded-lg border border-line bg-white px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-200"
-                          value={row.deadlineOffsetHours}
-                          onChange={(e) => {
-                            const n = Number(e.target.value);
-                            const v = Number.isFinite(n) ? Math.min(240, Math.max(1, Math.floor(n))) : 1;
-                            updateDraftRow(index, { deadlineOffsetHours: v });
-                          }}
+                          value={row.deadline}
+                          onChange={(e) => updateDraftRow(index, { deadline: e.target.value })}
                         />
                       </td>
                       <td className="px-3 py-2 align-middle">
@@ -1064,7 +1216,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                           onChange={(e) => updateDraftRow(index, { assigneeId: e.target.value })}
                         >
                           {data.members.map((m) => (
-                            <option key={m.id} value={m.id}>
+                            <option key={m.id} value={m.userId}>
                               {getDisplayName(m)}
                             </option>
                           ))}
@@ -1124,6 +1276,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
             <TaskBoard
               tasks={orderedTasks}
               canOperate={Boolean(data.me) && !data.isGuest}
+              isOwner={data.isOwner}
               onMove={(id, next) => void patchTaskStatus(id, next)}
               onPatchStatus={(id, s) => void patchTaskStatus(id, s)}
               onHint={(msg) => setTaskActionMessage(msg)}
@@ -1147,17 +1300,76 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                 />
               </div>
             ) : null}
-            <div className="grid grid-cols-[1.05fr_1.55fr_0.6fr_0.8fr_0.9fr_0.7fr] items-center gap-6 border-b border-line pb-5 text-center text-[22px] font-semibold tracking-tight text-slate-500">
+            <div className="grid grid-cols-[1.05fr_1.55fr_0.6fr_0.8fr_0.9fr_0.7fr_88px] items-center gap-6 border-b border-line pb-5 text-center text-[22px] font-semibold tracking-tight text-slate-500">
               <div className="flex items-center justify-center">任务名称</div>
               <div className="flex items-center justify-center">具体内容</div>
               <div className="flex items-center justify-center">工作量</div>
               <div className="flex items-center justify-center">当前状态</div>
               <div className="flex items-center justify-center">分配给</div>
               <div className="flex items-center justify-center">DDL</div>
+              <div className="flex items-center justify-center">操作</div>
             </div>
+            {data.isOwner ? (
+              <div className="grid grid-cols-[1.05fr_1.55fr_0.6fr_0.8fr_0.9fr_0.7fr_88px] items-center gap-6 border-b border-line bg-slate-50/70 py-5 text-center">
+                <div className="px-2">
+                  <input
+                    value={newTaskTitle}
+                    onChange={(e) => setNewTaskTitle(e.target.value)}
+                    placeholder="输入新任务名称"
+                    className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-200"
+                  />
+                </div>
+                <div className="text-sm text-slate-500">组长可直接在这里新增任务到当前列表</div>
+                <div className="px-2">
+                  <input
+                    type="number"
+                    min={1}
+                    value={newTaskWorkload}
+                    onChange={(e) => setNewTaskWorkload(Math.max(1, Number(e.target.value) || 1))}
+                    className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-200"
+                  />
+                </div>
+                <div className="text-xs text-slate-400">默认状态</div>
+                <div className="px-2">
+                  <select
+                    value={newTaskAssigneeId}
+                    onChange={(e) => setNewTaskAssigneeId(e.target.value)}
+                    className="w-full rounded-lg border border-line bg-white px-2 py-2 text-left text-sm outline-none focus:ring-2 focus:ring-slate-200"
+                  >
+                    <option value="">暂不指派</option>
+                    {data.members.map((m) => (
+                      <option key={m.id} value={m.userId}>
+                        {getDisplayName(m)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="px-2">
+                  <input
+                    type="date"
+                    min={new Date().toISOString().slice(0, 10)}
+                    max={new Date(data.project.deadline).toISOString().slice(0, 10)}
+                    value={newTaskDeadline}
+                    onChange={(e) => setNewTaskDeadline(e.target.value)}
+                    className="w-full rounded-lg border border-line bg-white px-2 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-200"
+                  />
+                </div>
+                <div className="flex justify-center px-2">
+                  <button
+                    type="button"
+                    onClick={() => void createListTask()}
+                    disabled={taskSaving || !newTaskDeadline}
+                    className="inline-flex items-center gap-1 rounded-full bg-slate-900 px-3 py-2 text-xs font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {taskSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                    新增
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <div>
               {orderedTasks.map((task) => (
-                <div key={task.id} className="grid grid-cols-[1.05fr_1.55fr_0.6fr_0.8fr_0.9fr_0.7fr] items-center gap-6 border-b border-line py-7 text-center">
+                <div key={task.id} className="grid grid-cols-[1.05fr_1.55fr_0.6fr_0.8fr_0.9fr_0.7fr_88px] items-center gap-6 border-b border-line py-7 text-center">
                   <div className={`flex flex-col items-center justify-center text-[18px] font-semibold ${statusTone(task)}`}>
                     <div>{normalizeTaskTitle(task.title)}</div>
                     {task.sourceLabel ? (
@@ -1295,7 +1507,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                         >
                           <option value="">选择成员…</option>
                           {data.members.map((m) => (
-                            <option key={m.id} value={m.id}>
+                            <option key={m.id} value={m.userId}>
                               {getDisplayName(m)}
                             </option>
                           ))}
@@ -1321,14 +1533,14 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                           }}
                           className="rounded-lg bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-800"
                         >
-                          保存
+                          ??
                         </button>
                         <button
                           type="button"
                           onClick={() => setEditingDeadlineTaskId(null)}
                           className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
                         >
-                          取消
+                          ??
                         </button>
                       </div>
                     ) : (
@@ -1355,6 +1567,19 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                       </button>
                     )}
                   </div>
+                  <div className="flex items-center justify-center">
+                    {data.isOwner ? (
+                      <button
+                        type="button"
+                        onClick={() => void deleteTask(task.id, normalizeTaskTitle(task.title))}
+                        disabled={deletingTaskId === task.id}
+                        className="inline-flex items-center justify-center rounded-full border border-red-200 p-2 text-red-500 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        aria-label="删除任务"
+                      >
+                        {deletingTaskId === task.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               ))}
             </div>
@@ -1369,17 +1594,23 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
             </div>
             <div className="grid grid-cols-[132px_1fr] gap-4">
               <div />
-              <div className="grid grid-cols-7 gap-3 pb-4 text-center text-[15px] font-semibold text-slate-400">
-                {["4.5", "4.6", "4.7", "4.8", "4.9", "4.10", "4.11"].map((day) => (
-                  <div key={day}>{day}</div>
+              <div className="relative h-7 pb-4">
+                {ganttRange.ticks.map((tick) => (
+                  <div
+                    key={`${tick.label}-${tick.leftPercent}`}
+                    className="absolute -translate-x-1/2 text-center text-[10px] font-medium tracking-tight text-slate-400"
+                    style={{ left: `${tick.leftPercent}%` }}
+                  >
+                    {tick.label}
+                  </div>
                 ))}
               </div>
 
               {data.members.map((member, memberIndex) => {
-                const laneTasks = orderedTasks.filter((task) => task.assignee?.id === member.id);
-                const layouts = buildLaneLayouts(laneTasks);
+                const laneTasks = orderedTasks.filter((task) => task.assignee?.id === member.id || task.assignee?.id === member.userId);
+                const layouts = buildLaneLayouts(laneTasks, ganttRange);
                 const laneHeight = Math.max(56, layouts.length > 0 ? layouts.length * 42 + 10 : 56);
-                const lanePts = memberWorkloadPoints(data.tasks, member.id);
+                const lanePts = memberWorkloadPoints(data.tasks, member.id, member.userId);
 
                 return (
                   <div key={member.id} className="contents">
@@ -1399,6 +1630,13 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                       style={{ minHeight: `${laneHeight}px` }}
                     >
                       <div className="pointer-events-none absolute inset-y-0 left-[50%] w-px bg-blue-400" />
+                      {ganttRange.dayLabels.length > 1 ? ganttRange.dayLabels.slice(1, -1).map((_, idx) => (
+                        <div
+                          key={`grid-${idx}`}
+                          className="pointer-events-none absolute inset-y-0 w-px bg-slate-200/70"
+                          style={{ left: `${((idx + 1) / ganttRange.dayLabels.length) * 100}%` }}
+                        />
+                      )) : null}
                       {layouts.map(({ task, rowIndex, left, width }) => (
                         <div
                           key={task.id}
@@ -1957,12 +2195,15 @@ function MemberManagementSection({
         )}
 
         {/* 预邀请待入驻 */}
-        {isOwner && presets.length > 0 && (
-          <div>
-            <p className="mb-2 text-xs font-medium text-slate-500 uppercase tracking-wider">待入驻</p>
+                {isOwner && presets.length > 0 && (
+          <div className="mb-4">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">待入驻</p>
             <div className="space-y-1.5">
               {presets.map((p) => (
-                <div key={p.id} className="flex items-center justify-between rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-4 py-2.5">
+                <div
+                  key={p.id}
+                  className="flex items-center justify-between rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-4 py-2.5"
+                >
                   <div className="flex items-center gap-2">
                     <div className="h-6 w-6 rounded-full border border-slate-200 bg-white text-center text-xs leading-6 text-slate-400">?</div>
                     <span className="text-sm text-slate-500">{p.presetName}</span>
@@ -1976,12 +2217,12 @@ function MemberManagementSection({
                       title="分享定向邀请链接"
                     >
                       <Share2 className="h-3 w-3" />
-                      邀请
+                      分享链接
                     </button>
                     <button
                       type="button"
                       onClick={() => setCancelPresetId(p.id)}
-                      className="text-xs text-slate-400 underline underline-offset-2 hover:text-red-500"
+                      className="text-xs text-slate-400 underline underline-offset-2 transition hover:text-red-500"
                     >
                       取消邀请
                     </button>
@@ -1992,7 +2233,6 @@ function MemberManagementSection({
           </div>
         )}
 
-        {/* 动态添加预设成员 */}
         {isOwner && addingPresets && (
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
             <p className="mb-3 text-xs font-medium text-slate-600">预邀请成员入驻（入驻前不会显示在成员列表）</p>
@@ -2003,7 +2243,7 @@ function MemberManagementSection({
                     className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-200"
                     value={name}
                     onChange={(e) => updatePresetInput(i, e.target.value)}
-                    placeholder={`成员昵称`}
+                    placeholder="成员昵称"
                     maxLength={40}
                   />
                   {presetInputs.length > 1 && (
@@ -2030,7 +2270,10 @@ function MemberManagementSection({
               <div className="flex-1" />
               <button
                 type="button"
-                onClick={() => { setAddingPresets(false); setPresetInputs([""]); }}
+                onClick={() => {
+                  setAddingPresets(false);
+                  setPresetInputs([""]);
+                }}
                 className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
               >
                 取消

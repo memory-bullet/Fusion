@@ -15,6 +15,13 @@ function normalizeDocument(raw: unknown): DashboardDocument {
     mimeType: d.mimeType != null ? String(d.mimeType) : null,
     fileSize: typeof d.fileSize === "number" ? d.fileSize : null,
     storageKey: d.storageKey != null ? String(d.storageKey) : null,
+    fileHash: d.fileHash != null ? String(d.fileHash) : null,
+    reviewStatus:
+      d.reviewStatus === "PENDING" || d.reviewStatus === "REJECTED" ? d.reviewStatus : "APPROVED",
+    reviewComment: typeof d.reviewComment === "string" ? d.reviewComment : "",
+    reviewedBy: d.reviewedBy != null ? String(d.reviewedBy) : null,
+    reviewedAt: d.reviewedAt != null ? String(d.reviewedAt) : null,
+    pointsAwarded: typeof d.pointsAwarded === "number" ? d.pointsAwarded : 0,
     createdAt: String(d.createdAt ?? ""),
     updatedAt: String(d.updatedAt ?? ""),
     author

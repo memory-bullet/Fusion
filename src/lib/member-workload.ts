@@ -5,8 +5,15 @@ export function isTaskActiveForWorkload(status: string): boolean {
   return status !== "DONE" && status !== "REALLOCATED";
 }
 
-export function memberWorkloadPoints(tasks: DashboardTask[], memberId: string): number {
+export function memberWorkloadPoints(
+  tasks: DashboardTask[],
+  memberId: string,
+  memberUserId?: string | null
+): number {
   return tasks
-    .filter((t) => t.assignee?.id === memberId && isTaskActiveForWorkload(t.status))
+    .filter((t) => {
+      const assigneeId = t.assignee?.id;
+      return Boolean(assigneeId) && (assigneeId === memberId || assigneeId === memberUserId) && isTaskActiveForWorkload(t.status);
+    })
     .reduce((s, t) => s + t.workloadPoints, 0);
 }

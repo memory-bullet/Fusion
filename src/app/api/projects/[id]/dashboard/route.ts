@@ -5,6 +5,7 @@ import { requireProjectMember } from "@/lib/auth";
 import { ensureDefaultProjectDocuments } from "@/lib/project-documents";
 import { toPublicUser } from "@/lib/user-serialize";
 import { runDeadlineUltimatumEngine } from "@/lib/deadline-ultimatum";
+import { parseAssignmentMilestones, sortMilestonesByDue } from "@/lib/assignment-milestones";
 
 function parseKeyDeliverables(raw: string | null | undefined): string[] | null {
   if (!raw) return null;
@@ -29,14 +30,19 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       meId = null;
     }
 
-    const [project, members, presets, tasks, logs] = await Promise.all([
+    const [project, members, presets, logs] = await Promise.all([
       prisma.project.findUnique({
         where: { id },
         select: {
           id: true,
           title: true,
           contextSummary: true,
+          keyDeliverables: true,
+          assignmentMilestones: true,
+          progressDigest: true,
+          progressDigestAt: true,
           status: true,
+          createdAt: true,
           deadline: true,
           inviteCode: true
         }
@@ -51,21 +57,6 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       }),
       prisma.memberPreset.findMany({
         where: { projectId: id },
-        orderBy: { createdAt: "asc" }
-      }),
-      prisma.task.findMany({
-        where: { projectId: id },
-        select: {
-          id: true,
-          title: true,
-          status: true,
-          workloadPoints: true,
-          createdAt: true,
-          deadline: true,
-          assignee: {
-            select: { id: true, name: true, accumulatedPoints: true, creditScore: true }
-          }
-        },
         orderBy: { createdAt: "asc" }
       }),
       prisma.actionLog.findMany({
@@ -101,6 +92,9 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
         workloadPoints: true,
         createdAt: true,
         deadline: true,
+        sourceLabel: true,
+        isReallocated: true,
+        ultimatumLevel: true,
         createdById: true,
         assignee: {
           select: { id: true, name: true, accumulatedPoints: true, creditScore: true }
@@ -126,10 +120,10 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     const isOwner = myMembership?.role === "OWNER";
     const isGuest = meId === null;
 
-    const rawDeliverables: string | null = null;
-    const rawMilestones: string | null = null;
-    const projectRest = project;
-    const milestonesSorted = null;
+    const rawDeliverables = project.keyDeliverables ?? null;
+    const rawMilestones = project.assignmentMilestones ?? null;
+    const { keyDeliverables: _ignoredDeliverables, assignmentMilestones: _ignoredMilestones, ...projectRest } = project;
+    const milestonesSorted = rawMilestones ? sortMilestonesByDue(parseAssignmentMilestones(rawMilestones) ?? []) : null;
 
     const publicMembers = members.map((m) => ({
       ...toPublicUser(m.user),
@@ -182,7 +176,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       })),
       tasks: publicTasks,
       logs: publicLogs,
-      documents: documentRows.map((doc) => ({
+      documents: (documentRows as Array<any>).map((doc) => ({
         id: doc.id,
         title: doc.title,
         content: doc.content,
@@ -191,6 +185,12 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
         mimeType: doc.mimeType ?? null,
         fileSize: doc.fileSize ?? null,
         storageKey: doc.storageKey ?? null,
+        fileHash: doc.fileHash ?? null,
+        reviewStatus: (doc.reviewStatus as "PENDING" | "APPROVED" | "REJECTED") ?? "APPROVED",
+        reviewComment: doc.reviewComment ?? "",
+        reviewedBy: doc.reviewedBy ?? null,
+        reviewedAt: doc.reviewedAt?.toISOString() ?? null,
+        pointsAwarded: doc.pointsAwarded ?? 0,
         createdAt: doc.createdAt.toISOString(),
         updatedAt: doc.updatedAt.toISOString(),
         author: doc.author

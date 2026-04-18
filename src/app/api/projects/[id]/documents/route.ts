@@ -74,7 +74,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ document: serializeDoc(doc) });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Create document failed" },
+      { error: error instanceof Error ? error.message : "新建文档失败" },
       { status: 400 }
     );
   }

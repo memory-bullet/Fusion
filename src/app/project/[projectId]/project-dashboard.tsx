@@ -8,7 +8,6 @@ import {
   FileVideo,
   ImageIcon,
   Loader2,
-  Trash2,
   Upload,
   Users2,
   LayoutGrid
@@ -60,6 +59,7 @@ export function ProjectDashboard({ projectId }: Props) {
   );
 
   const canEdit = Boolean(data?.me) && !data?.isGuest;
+  const canReviewDocuments = Boolean(data?.isOwner);
 
   // S5: 当前用户的任务列表（仪表盘顶部展示）
   const myTasks = useMemo(() => {
@@ -77,6 +77,7 @@ export function ProjectDashboard({ projectId }: Props) {
 
   const [uploadNote, setUploadNote] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [uploadFeedback, setUploadFeedback] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const contributionRanking = useMemo(
@@ -85,24 +86,46 @@ export function ProjectDashboard({ projectId }: Props) {
   );
 
   async function onUploadPicked(files: FileList | null) {
-    const file = files?.[0];
-    if (!file || !canEdit) return;
+    const pickedFiles = files ? Array.from(files) : [];
+    if (pickedFiles.length === 0 || !canEdit) return;
     setUploading(true);
+    setUploadFeedback(null);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("description", uploadNote);
-      const res = await fetch(`/api/projects/${projectId}/documents/upload`, {
-        method: "POST",
-        body: fd
-      });
-      const payload = await res.json();
-      if (!res.ok) {
-        console.error(payload.error || "上传失败");
-        return;
+      const results = await Promise.all(
+        pickedFiles.map(async (file) => {
+          const fd = new FormData();
+          fd.append("file", file);
+          fd.append("description", uploadNote);
+          const res = await fetch(`/api/projects/${projectId}/documents/upload`, {
+            method: "POST",
+            body: fd
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            return {
+              ok: false as const,
+              error: typeof payload.error === "string" ? payload.error : `${file.name} 上传失败`
+            };
+          }
+          return { ok: true as const };
+        })
+      );
+
+      const failed = results.filter((item) => !item.ok);
+      const successCount = results.length - failed.length;
+
+      if (successCount > 0) {
+        setUploadNote("");
+        await refresh();
       }
-      setUploadNote("");
-      await refresh();
+
+      if (failed.length === 0) {
+        setUploadFeedback(data?.isOwner ? `已成功上传 ${successCount} 个文件` : `已成功提交 ${successCount} 个文件，等待组长审核`);
+      } else if (successCount === 0) {
+        setUploadFeedback(failed[0]?.error ?? "上传失败");
+      } else {
+        setUploadFeedback(`已上传 ${successCount} 个文件，${failed.length} 个失败：${failed[0]?.error ?? "请重试"}`);
+      }
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -115,9 +138,30 @@ export function ProjectDashboard({ projectId }: Props) {
     const res = await fetch(`/api/projects/${projectId}/documents/${id}`, { method: "DELETE" });
     if (!res.ok) {
       const payload = await res.json().catch(() => ({}));
-      console.error(payload.error || "删除失败");
+      setUploadFeedback(typeof payload.error === "string" ? payload.error : "删除失败");
       return;
     }
+    await refresh();
+  }
+
+  async function reviewDocument(id: string, reviewStatus: "APPROVED" | "REJECTED") {
+    if (!canReviewDocuments) return;
+    const reviewComment = reviewStatus === "REJECTED"
+      ? window.prompt("请输入打回原因", "请按要求修改后重新提交") ?? ""
+      : "";
+    if (reviewStatus === "REJECTED" && !reviewComment.trim()) return;
+
+    const res = await fetch(`/api/projects/${projectId}/documents/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reviewStatus, reviewComment })
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setUploadFeedback(typeof payload.error === "string" ? payload.error : "审核失败");
+      return;
+    }
+    setUploadFeedback(reviewStatus === "APPROVED" ? "已审核通过并发放积分" : "已打回，等待成员重提");
     await refresh();
   }
 
@@ -314,7 +358,7 @@ export function ProjectDashboard({ projectId }: Props) {
             <div className="mb-4 space-y-2">
               <div className="text-lg font-bold text-slate-900">三、作业文件</div>
               <p className="text-sm leading-relaxed text-slate-500">
-                支持 Word、PDF、Markdown、图片、音视频、常见建模与压缩包等。上传时请填写作品说明；成功上传会计入积分并写入操作日志，列表与成员分在约 15 秒内随轮询刷新。
+                支持 Word、PDF、Markdown、图片、音视频、常见建模与压缩包等，可一次选择多个文件批量上传。组员上传后需经过组长审核，通过后才会计入积分；若被打回，需要修改后重新提交。系统会按文件内容去重，避免重复上传刷分。
               </p>
             </div>
 
@@ -329,9 +373,13 @@ export function ProjectDashboard({ projectId }: Props) {
                 placeholder="简要描述作业内容、版本、分工等…"
                 className="mt-2 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400 disabled:opacity-50"
               />
+              {uploadFeedback ? (
+                <p className="mt-2 text-xs text-slate-500">{uploadFeedback}</p>
+              ) : null}
               <input
                 ref={fileInputRef}
                 type="file"
+                multiple
                 className="hidden"
                 accept=".pdf,.doc,.docx,.md,.txt,.ppt,.pptx,.xls,.xlsx,.csv,.json,.zip,.rar,.7z,.png,.jpg,.jpeg,.gif,.webp,.svg,.bmp,.mp4,.webm,.mov,.mkv,.mp3,.wav,.m4a,.aac,.ogg,.flac,.glb,.gltf,.obj,.fbx,.stl,image/*,video/*,audio/*"
                 onChange={(e) => void onUploadPicked(e.target.files)}
@@ -344,10 +392,10 @@ export function ProjectDashboard({ projectId }: Props) {
                   className="inline-flex items-center gap-2 rounded-full border border-slate-900 bg-slate-900 px-4 py-2 text-sm font-medium text-white transition enabled:hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                  {uploading ? "上传中…" : "选择文件上传"}
+                  {uploading ? "批量上传中…" : "选择文件批量上传"}
                 </button>
               </div>
-              <p className="mt-2 text-[11px] text-slate-400">单文件上限约 80MB。不支持的类型将被拒绝。</p>
+              <p className="mt-2 text-[11px] text-slate-400">支持一次选择多个文件；单文件上限约 80MB。不支持的类型将被拒绝。</p>
             </div>
 
             <div className="space-y-3">
@@ -360,12 +408,34 @@ export function ProjectDashboard({ projectId }: Props) {
                 const fileUrl = doc.storageKey
                   ? `/api/projects/${projectId}/documents/${doc.id}/file`
                   : null;
+                const canDeleteDoc = canReviewDocuments || doc.author.id === data.me?.id;
+                const showDeleteDoc = canReviewDocuments || doc.author.id === data.me?.id;
                 return (
                   <div key={doc.id} className="rounded-[22px] border border-slate-200 bg-white p-4">
                     <div className="flex gap-3">
                       <DocGlyph storageKey={doc.storageKey} mimeType={doc.mimeType} />
                       <div className="min-w-0 flex-1">
-                        <div className="text-base font-semibold text-slate-900">{doc.title}</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="text-base font-semibold text-slate-900">{doc.title}</div>
+                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                            doc.reviewStatus === "APPROVED"
+                              ? "bg-emerald-50 text-emerald-600"
+                              : doc.reviewStatus === "REJECTED"
+                                ? "bg-red-50 text-red-600"
+                                : "bg-amber-50 text-amber-600"
+                          }`}>
+                            {doc.reviewStatus === "APPROVED"
+                              ? "已通过"
+                              : doc.reviewStatus === "REJECTED"
+                                ? "已打回"
+                                : "待审核"}
+                          </span>
+                          {doc.pointsAwarded > 0 ? (
+                            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-600">
+                              +{doc.pointsAwarded} 分
+                            </span>
+                          ) : null}
+                        </div>
                         <div className="mt-0.5 text-xs text-slate-500">
                           {doc.storageKey
                             ? `${doc.originalFileName ?? "文件"}${doc.fileSize ? ` · ${formatBytes(doc.fileSize)}` : ""}`
@@ -375,6 +445,16 @@ export function ProjectDashboard({ projectId }: Props) {
                           <div className="mt-1 text-xs text-slate-600">{doc.description}</div>
                         ) : null}
                         <div className="mt-1 text-xs text-slate-400">作者：{doc.author.name}</div>
+                        {doc.reviewStatus === "REJECTED" && doc.reviewComment ? (
+                          <div className="mt-2 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">
+                            打回原因：{doc.reviewComment}
+                          </div>
+                        ) : null}
+                        {doc.reviewStatus === "PENDING" ? (
+                          <div className="mt-2 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                            {data.isOwner ? "等待你审核，通过后才会给上传者加分。" : "已提交给组长审核，审核通过后才会加分。"}
+                          </div>
+                        ) : null}
                         {!doc.storageKey && doc.content?.trim() ? (
                           <details className="mt-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm">
                             <summary className="cursor-pointer text-slate-600">查看正文</summary>
@@ -396,14 +476,34 @@ export function ProjectDashboard({ projectId }: Props) {
                           在新标签打开
                         </a>
                       ) : null}
-                      <button
-                        type="button"
-                        onClick={() => void deleteDocument(doc.id)}
-                        disabled={!canEdit}
-                        className="rounded-full border border-red-200 px-3 py-1 text-xs text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        删除
-                      </button>
+                      {canReviewDocuments && doc.reviewStatus === "PENDING" ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void reviewDocument(doc.id, "APPROVED")}
+                            className="rounded-full border border-emerald-200 px-3 py-1 text-xs text-emerald-600 hover:bg-emerald-50"
+                          >
+                            审核通过
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void reviewDocument(doc.id, "REJECTED")}
+                            className="rounded-full border border-amber-200 px-3 py-1 text-xs text-amber-600 hover:bg-amber-50"
+                          >
+                            打回重做
+                          </button>
+                        </>
+                      ) : null}
+                      {showDeleteDoc ? (
+                        <button
+                          type="button"
+                          onClick={() => void deleteDocument(doc.id)}
+                          disabled={!canDeleteDoc}
+                          className="rounded-full border border-red-200 px-3 py-1 text-xs text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          删除
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 );

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireProjectMember } from "@/lib/auth";
+import { isProjectOwner, requireProjectMember } from "@/lib/auth";
 import {
   assertAllowedUpload,
   extensionOf,
@@ -8,6 +8,7 @@ import {
   saveUploadedBytes
 } from "@/lib/project-file-storage";
 import { pointsForFileUpload } from "@/lib/document-contribution";
+import { sha256Hex } from "@/lib/file-hash";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -25,6 +26,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const { id: projectId } = await params;
     const userId = await requireProjectMember(projectId);
+    const owner = await isProjectOwner(projectId, userId);
 
     const form = await request.formData();
     const file = form.get("file");
@@ -39,6 +41,22 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const mime = file.type?.trim() || "application/octet-stream";
     const safeName = safeBasename(file.name);
     const displayTitle = titleFromFilename(file.name);
+    const fileHash = sha256Hex(buffer);
+    const initialReviewStatus = owner ? "APPROVED" : "PENDING";
+    const awardedPoints = owner ? pointsForFileUpload(buffer.length) : 0;
+
+    const duplicate = await prisma.projectDocument.findFirst({
+      where: {
+        projectId,
+        authorId: userId,
+        fileHash,
+        storageKey: { not: null }
+      },
+      select: { id: true }
+    });
+    if (duplicate) {
+      return NextResponse.json({ error: "检测到你已上传过相同文件，请勿重复提交刷分" }, { status: 400 });
+    }
 
     const result = await prisma.$transaction(async (tx) => {
       const created = await tx.projectDocument.create({
@@ -51,7 +69,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           originalFileName: file.name,
           mimeType: mime,
           fileSize: buffer.length,
-          storageKey: null
+          storageKey: null,
+          fileHash,
+          reviewStatus: initialReviewStatus,
+          pointsAwarded: awardedPoints,
+          reviewedBy: owner ? userId : null,
+          reviewedAt: owner ? new Date() : null
         },
         include: { author: { select: { id: true, name: true } } }
       });
@@ -65,19 +88,23 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         include: { author: { select: { id: true, name: true } } }
       });
 
-      const pts = pointsForFileUpload(buffer.length);
-      await tx.user.update({
-        where: { id: userId },
-        data: { accumulatedPoints: { increment: pts } }
-      });
       await tx.actionLog.create({
         data: {
           projectId,
           userId,
-          actionType: "DOCUMENT_UPLOAD",
-          description: `上传作业文件：${file.name}（${(buffer.length / 1024).toFixed(1)} KB）｜积分 +${pts}`
+          actionType: owner ? "DOCUMENT_UPLOAD" : "DOCUMENT_REVIEW_PENDING",
+          description: owner
+            ? `上传作业文件：${file.name}（${(buffer.length / 1024).toFixed(1)} KB）｜积分 +${awardedPoints}`
+            : `提交作业文件待组长审核：${file.name}（${(buffer.length / 1024).toFixed(1)} KB）`
         }
       });
+
+      if (awardedPoints > 0) {
+        await tx.user.update({
+          where: { id: userId },
+          data: { accumulatedPoints: { increment: awardedPoints } }
+        });
+      }
 
       return doc;
     });
@@ -92,6 +119,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         mimeType: result.mimeType,
         fileSize: result.fileSize,
         storageKey: result.storageKey,
+        fileHash: result.fileHash,
+        reviewStatus: result.reviewStatus,
+        reviewComment: result.reviewComment,
+        reviewedBy: result.reviewedBy,
+        reviewedAt: result.reviewedAt?.toISOString() ?? null,
+        pointsAwarded: result.pointsAwarded,
         createdAt: result.createdAt.toISOString(),
         updatedAt: result.updatedAt.toISOString(),
         author: result.author

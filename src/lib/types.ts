@@ -49,6 +49,12 @@ export type DashboardDocument = {
   fileSize: number | null;
   /** 非空表示本地磁盘上的作业文件，可经 API 下载/预览 */
   storageKey: string | null;
+  fileHash?: string | null;
+  reviewStatus: "PENDING" | "APPROVED" | "REJECTED";
+  reviewComment: string;
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+  pointsAwarded: number;
   createdAt: string;
   updatedAt: string;
   author: { id: string; name: string };
@@ -65,6 +71,7 @@ export type DashboardData = {
     contextSummary: string;
     keyDeliverables?: string[] | null;
     assignmentMilestones?: AssignmentMilestone[] | null;
+    createdAt: string;
     deadline: string;
     inviteCode: string;
     progressDigest?: string | null;

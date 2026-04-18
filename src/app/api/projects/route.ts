@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
           projectId: project.id,
           userId: owner.id,
           actionType: "PROJECT_CREATED",
-          description: `${owner.name} created the project`
+          description: `${owner.name} 创建了项目`
         }
       });
 

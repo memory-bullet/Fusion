@@ -65,7 +65,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         projectId,
         userId,
         actionType: "AI_PARSED_CONTEXT",
-        description: "AI generated shared context summary (requirement-upload)"
+        description: "AI 已解析作业要求并生成共享上下文"
       }
     });
 

@@ -4,7 +4,7 @@ import type { DashboardTask } from "@/lib/types";
 import { memberWorkloadPoints } from "@/lib/member-workload";
 import { getDisplayName } from "@/lib/display-name";
 
-type Member = { id: string; name: string; projectNickname?: string | null };
+type Member = { id: string; userId?: string | null; name: string; projectNickname?: string | null };
 
 export function MemberWorkloadStrip({
   members,
@@ -20,7 +20,7 @@ export function MemberWorkloadStrip({
   const rows = members
     .map((m) => ({
       ...m,
-      pts: memberWorkloadPoints(tasks, m.id),
+      pts: memberWorkloadPoints(tasks, m.id, m.userId),
       displayName: getDisplayName(m)
     }))
     .sort((a, b) => b.pts - a.pts);

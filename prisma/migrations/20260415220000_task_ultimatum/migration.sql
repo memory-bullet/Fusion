@@ -1,0 +1,3 @@
+-- Placeholder migration recreated locally.
+-- This migration had already been applied in the database,
+-- but the local prisma/migrations folder no longer contained it.

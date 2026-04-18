@@ -8,7 +8,7 @@ export const maxDuration = 120;
 const draftTaskSchema = z.object({
   title: z.string().min(1).max(500),
   workloadPoints: z.number().int().positive().max(10_000),
-  deadlineOffsetHours: z.number().int().min(1).max(240),
+  deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   assigneeId: z.string().optional()
 });
 
@@ -43,9 +43,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const created = await prisma.$transaction(async (tx) => {
       const out = [];
       for (const t of body.tasks) {
-        const deadline = new Date(
-          Math.min(project.deadline.getTime(), Date.now() + t.deadlineOffsetHours * 60 * 60 * 1000)
-        );
+        const parsedDeadline = new Date(`${t.deadline}T23:59:59.999`);
+        const deadline = new Date(Math.min(project.deadline.getTime(), parsedDeadline.getTime()));
         const task = await tx.task.create({
           data: {
             projectId: id,
@@ -79,7 +78,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: "任务草稿格式无效" }, { status: 400 });
     }
-    const message = error instanceof Error ? error.message : "Commit failed";
+    const message = error instanceof Error ? error.message : "写入失败";
     const status = message.includes("Only project owner") ? 403 : 400;
     return NextResponse.json({ error: message }, { status });
   }

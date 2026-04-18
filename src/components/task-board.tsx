@@ -20,21 +20,27 @@ export function TaskBoard({
   onMove,
   onPatchStatus,
   canOperate,
+  isOwner,
   onHint
 }: {
   tasks: DashboardTask[];
   onMove: (id: string, next: TaskStatus) => Promise<void>;
   onPatchStatus: (id: string, status: TaskStatus) => Promise<void>;
   canOperate: boolean;
+  isOwner: boolean;
   onHint?: (msg: string) => void;
 }) {
   function onDrop(next: TaskStatus, event: React.DragEvent<HTMLDivElement>) {
     event.preventDefault();
     if (!canOperate) return;
-    const taskId = event.dataTransfer.getData("taskId");
+    const taskId = event.dataTransfer.getData("text/plain") || event.dataTransfer.getData("taskId");
     if (!taskId) return;
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
+    if (next === "UNASSIGNED" && task.status !== "UNASSIGNED" && !isOwner) {
+      onHint?.("只有组长可以把任务撤回到待认领。")
+      return;
+    }
     if (!canTransition(task.status, next)) {
       onHint?.("该列与当前状态不兼容，请拖到相邻阶段或使用卡片按钮。");
       return;
@@ -55,7 +61,11 @@ export function TaskBoard({
           <div
             key={column}
             className="rounded-xl border border-line bg-slate-50/90 p-2"
-            onDragOver={(e) => canOperate && e.preventDefault()}
+            onDragOver={(e) => {
+              if (!canOperate) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+            }}
             onDrop={(e) => void onDrop(column, e)}
           >
             <div className="mb-2 text-center text-xs font-semibold text-slate-600">{COLUMN_LABEL[column]}</div>
@@ -68,6 +78,8 @@ export function TaskBoard({
                     draggable={canOperate}
                     onDragStart={(e) => {
                       if (!canOperate) return;
+                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.setData("text/plain", task.id);
                       e.dataTransfer.setData("taskId", task.id);
                     }}
                     className={`rounded-xl border border-line bg-white p-2.5 text-sm shadow-sm ${canOperate ? "cursor-grab active:cursor-grabbing" : "opacity-90"}`}
@@ -91,6 +103,15 @@ export function TaskBoard({
                       <div className="mt-2 flex flex-wrap gap-1">
                         {task.status === "TODO" ? (
                           <>
+                            {isOwner ? (
+                              <button
+                                type="button"
+                                onClick={() => void onPatchStatus(task.id, "UNASSIGNED")}
+                                className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-800 hover:bg-slate-100"
+                              >
+                                撤回
+                              </button>
+                            ) : null}
                             <button
                               type="button"
                               onClick={() => void onPatchStatus(task.id, "IN_PROGRESS")}

@@ -35,7 +35,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const project = await prisma.project.findUnique({ where: { id } });
     if (!project) {
-      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+      return NextResponse.json({ error: "项目不存在" }, { status: 404 });
     }
 
     const created = await prisma.$transaction(async (tx) => {
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           projectId: id,
           userId,
           actionType: "AI_AUTO_ASSIGNED",
-          description: `AI generated and assigned ${tasks.length} tasks｜来源：${sourceLabel}`
+          description: `AI 自动生成并分配了 ${tasks.length} 条任务｜来源：${sourceLabel}`
         }
       });
 
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ contextSummary: ai.contextSummary, tasks: created });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "AI task generation failed" },
+      { error: error instanceof Error ? error.message : "AI 任务生成失败" },
       { status: 400 }
     );
   }

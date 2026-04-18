@@ -10,7 +10,7 @@ const statusSchema = z.object({
   assigneeId: z.string().optional()
 });
 
-export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function handleStatusUpdate(request: NextRequest, params: Promise<{ id: string }>) {
   try {
     const { id } = await params;
     const body = statusSchema.parse(await request.json());
@@ -22,11 +22,47 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const userId = await requireProjectMember(task.projectId);
 
-    if (task.status === "DONE" || task.status === "REALLOCATED") {
+    if (task.status === "REALLOCATED") {
       return NextResponse.json({ error: "Terminal tasks are locked" }, { status: 400 });
     }
 
     assertTransition(task.status as TaskStatus, body.status as TaskStatus);
+
+    if (task.status === "DONE" && body.status === "IN_PROGRESS") {
+      const assigneeId = task.assigneeId ?? userId;
+
+      const reopened = await prisma.$transaction(async (tx) => {
+        const updatedTask = await tx.task.update({
+          where: { id },
+          data: {
+            status: "IN_PROGRESS",
+            assigneeId,
+            ultimatumLevel: "NONE",
+            ultimatumWarnNotifiedAt: null,
+            ultimatumRedNotifiedAt: null
+          },
+          include: { assignee: true }
+        });
+
+        await tx.user.update({
+          where: { id: assigneeId },
+          data: { accumulatedPoints: { decrement: task.workloadPoints } }
+        });
+
+        await tx.actionLog.create({
+          data: {
+            projectId: task.projectId,
+            userId,
+            actionType: "TASK_STATUS_CHANGED",
+            description: `任务打回重做：${updatedTask.title}｜负责人：${updatedTask.assignee?.name ?? "未分配"}｜回退至：IN_PROGRESS｜回收：-${task.workloadPoints} 积分`
+          }
+        });
+
+        return updatedTask;
+      });
+
+      return NextResponse.json({ task: reopened });
+    }
 
     if (body.status === "DONE") {
       const assigneeId = task.assigneeId ?? userId;
@@ -66,7 +102,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     let nextAssigneeId: string | null = task.assigneeId;
 
-    if (body.assigneeId !== undefined) {
+    if (body.status === "UNASSIGNED") {
+      nextAssigneeId = null;
+    } else if (body.assigneeId !== undefined) {
       if (body.assigneeId !== userId) {
         if (!(await isProjectOwner(task.projectId, userId))) {
           return NextResponse.json({ error: "仅队长可将任务指派给其他成员" }, { status: 403 });
@@ -110,4 +148,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       { status: 400 }
     );
   }
+}
+
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  return handleStatusUpdate(request, params);
+}
+
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  return handleStatusUpdate(request, params);
 }

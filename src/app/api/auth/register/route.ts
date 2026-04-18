@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
           projectId: draftProject.id,
           userId: user.id,
           actionType: "PROJECT_CREATED",
-          description: `${user.name} created personal draft space`
+          description: `${user.name} 创建了个人草稿空间`
         }
       });
 

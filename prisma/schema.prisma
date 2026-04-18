@@ -78,6 +78,15 @@ model ProjectDocument {
   fileSize          Int?
   /// 相对 uploads 根目录的路径，如 projectId/docId/name.ext
   storageKey        String?
+  /// 上传文件内容哈希，用于阻止重复上传刷分
+  fileHash          String?
+  /// PENDING | APPROVED | REJECTED
+  reviewStatus      String   @default("APPROVED")
+  reviewComment     String   @default("")
+  reviewedBy        String?
+  reviewedAt        DateTime?
+  /// 实际发放的积分，删除时按此回退
+  pointsAwarded     Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -85,6 +94,7 @@ model ProjectDocument {
   author  User    @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
+  @@index([projectId, authorId, fileHash])
 }
 
 model ProjectMember {

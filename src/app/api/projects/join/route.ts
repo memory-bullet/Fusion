@@ -171,8 +171,8 @@ export async function POST(request: NextRequest) {
       const msg = error.issues[0]?.message ?? "请求格式错误";
       return NextResponse.json({ error: msg }, { status: 400 });
     }
-    const message = error instanceof Error ? error.message : "Join failed";
-    const status = message === "Project not found" ? 404 : 400;
+    const message = error instanceof Error ? error.message : "??????";
+    const status = message === "?????" ? 404 : 400;
     return NextResponse.json({ error: message }, { status });
   }
 }
