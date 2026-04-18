@@ -200,6 +200,7 @@ const ACCEPT_UPLOAD =
 
 export function ProjectManagePage({ projectId }: { projectId: string }) {
   const { data, error, refresh } = useProjectDashboard(projectId);
+  const [view, setView] = useState<"list" | "gantt" | "kanban">("kanban");
   const [digestBusy, setDigestBusy] = useState(false);
   const digestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [uploadPhase, setUploadPhase] = useState<"idle" | "processing">("idle");
@@ -214,10 +215,9 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
   const [reallocateLoading, setReallocateLoading] = useState(false);
   const [reallocateError, setReallocateError] = useState<string | null>(null);
   const [taskActionMessage, setTaskActionMessage] = useState<string | null>(null);
-  const [editingWorkload, setEditingWorkload] = useState<Record<string, string>>({});
 
   const runUpload = useCallback(
-    async (file: File, isOwner: boolean, members: { userId: string }[]) => {
+    async (file: File, isOwner: boolean, members: { id: string }[]) => {
       setUploadError(null);
       setCommitError(null);
       if (!isOwner) {
@@ -395,25 +395,6 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
       scheduleProgressDigest();
     },
     [refresh, scheduleProgressDigest]
-  );
-
-  const updateTaskWorkload = useCallback(
-    async (taskId: string, workloadPoints: number) => {
-      setTaskActionMessage(null);
-      const res = await fetch(`/api/tasks/${taskId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workloadPoints })
-      });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setTaskActionMessage(typeof payload.error === "string" ? payload.error : "????????");
-        return false;
-      }
-      await refresh();
-      return true;
-    },
-    [refresh]
   );
 
   const refreshProgressDigestNow = useCallback(async () => {
@@ -804,7 +785,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                           onChange={(e) => updateDraftRow(index, { assigneeId: e.target.value })}
                         >
                           {data.members.map((m) => (
-                            <option key={m.id} value={m.userId}>
+                            <option key={m.id} value={m.id}>
                               {getDisplayName(m)}
                             </option>
                           ))}
@@ -831,285 +812,302 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
           </section>
         ) : null}
 
-        <section className="mb-8 space-y-4">
-          <MemberWorkloadStrip members={data.members} tasks={data.tasks} />
-          {taskActionMessage ? <p className="text-center text-sm text-slate-700">{taskActionMessage}</p> : null}
-          <TaskBoard
-            tasks={orderedTasks}
-            canOperate={Boolean(data.me) && !data.isGuest}
-            onMove={(id, next) => void patchTaskStatus(id, next)}
-            onPatchStatus={(id, s) => void patchTaskStatus(id, s)}
-            onHint={(msg) => setTaskActionMessage(msg)}
-          />
-        </section>
-
-        <section className="line-card mb-8 overflow-hidden p-8">
-          {listWorkloadItems.length > 0 ? (
-            <div className="mb-6">
-              <WorkloadShareBar
-                items={listWorkloadItems}
-                title={taskListWorkloadTotal === 100 ? "???????????100 ???" : "????????????"}
-              />
-            </div>
-          ) : null}
-          <div className="grid grid-cols-[1.05fr_1.55fr_0.95fr_0.9fr_1fr_0.7fr] items-center gap-6 border-b border-line pb-5 text-center text-[22px] font-semibold tracking-tight text-slate-500">
-            <div className="flex items-center justify-center">????</div>
-            <div className="flex items-center justify-center">????</div>
-            <div className="flex items-center justify-center">???</div>
-            <div className="flex items-center justify-center">????</div>
-            <div className="flex items-center justify-center">???</div>
-            <div className="flex items-center justify-center">DDL</div>
+        <div className="mb-5 flex justify-center">
+          <div className="inline-flex flex-wrap justify-center gap-1 rounded-full border border-line bg-slate-100 p-1">
+            <button
+              type="button"
+              onClick={() => setView("kanban")}
+              className={`rounded-full px-5 py-3 text-base font-medium ${view === "kanban" ? "bg-white text-slate-900 shadow-card" : "text-slate-500"}`}
+            >
+              看板（拖拽）
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("list")}
+              className={`rounded-full px-5 py-3 text-base font-medium ${view === "list" ? "bg-white text-slate-900 shadow-card" : "text-slate-500"}`}
+            >
+              任务列表
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("gantt")}
+              className={`rounded-full px-5 py-3 text-base font-medium ${view === "gantt" ? "bg-white text-slate-900 shadow-card" : "text-slate-500"}`}
+            >
+              甘特图
+            </button>
           </div>
-          <div>
-            {orderedTasks.map((task) => (
-              <div key={task.id} className="grid grid-cols-[1.05fr_1.55fr_0.95fr_0.9fr_1fr_0.7fr] items-center gap-6 border-b border-line py-7 text-center">
-                <div className={`flex flex-col items-center justify-center text-[18px] font-semibold ${statusTone(task)}`}>
-                  <div>{normalizeTaskTitle(task.title)}</div>
-                  {task.sourceLabel ? (
-                    <div className="mt-2">
-                      <span className="inline-flex rounded-full border border-sky-100 bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700">
-                        {task.sourceLabel}
+        </div>
+
+        {view === "kanban" ? (
+          <section className="mb-8 space-y-4">
+            <MemberWorkloadStrip members={data.members} tasks={data.tasks} />
+            {taskActionMessage ? <p className="text-center text-sm text-slate-700">{taskActionMessage}</p> : null}
+            <TaskBoard
+              tasks={orderedTasks}
+              canOperate={Boolean(data.me) && !data.isGuest}
+              onMove={(id, next) => void patchTaskStatus(id, next)}
+              onPatchStatus={(id, s) => void patchTaskStatus(id, s)}
+              onHint={(msg) => setTaskActionMessage(msg)}
+            />
+          </section>
+        ) : null}
+
+        {view === "list" ? (
+          <section className="line-card mb-8 overflow-hidden p-8">
+            <div className="mb-6 space-y-4">
+              <MemberWorkloadStrip members={data.members} tasks={data.tasks} />
+              {taskActionMessage ? (
+                <p className="text-center text-sm text-slate-700">{taskActionMessage}</p>
+              ) : null}
+            </div>
+            {listWorkloadItems.length > 0 ? (
+              <div className="mb-6">
+                <WorkloadShareBar
+                  items={listWorkloadItems}
+                  title={taskListWorkloadTotal === 100 ? "当前列表：工作量权重（100 点制）" : "当前列表：工作量权重分布"}
+                />
+              </div>
+            ) : null}
+            <div className="grid grid-cols-[1.05fr_1.55fr_0.6fr_0.8fr_0.9fr_0.7fr] items-center gap-6 border-b border-line pb-5 text-center text-[22px] font-semibold tracking-tight text-slate-500">
+              <div className="flex items-center justify-center">任务名称</div>
+              <div className="flex items-center justify-center">具体内容</div>
+              <div className="flex items-center justify-center">工作量</div>
+              <div className="flex items-center justify-center">当前状态</div>
+              <div className="flex items-center justify-center">分配给</div>
+              <div className="flex items-center justify-center">DDL</div>
+            </div>
+            <div>
+              {orderedTasks.map((task) => (
+                <div key={task.id} className="grid grid-cols-[1.05fr_1.55fr_0.6fr_0.8fr_0.9fr_0.7fr] items-center gap-6 border-b border-line py-7 text-center">
+                  <div className={`flex flex-col items-center justify-center text-[18px] font-semibold ${statusTone(task)}`}>
+                    <div>{normalizeTaskTitle(task.title)}</div>
+                    {task.sourceLabel ? (
+                      <div className="mt-2">
+                        <span className="inline-flex rounded-full border border-sky-100 bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700">
+                          {task.sourceLabel}
+                        </span>
+                      </div>
+                    ) : null}
+                    {criticalLabel(task)}
+                    {canReallocateTask(task) ? (
+                      <div className="mt-3">
+                        <button
+                          type="button"
+                          onClick={() => openReallocateDialog(task.id)}
+                          className="rounded-full border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50"
+                        >
+                          重新分配
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-col items-center justify-center gap-1 text-[14px] text-slate-500">
+                    <span>
+                      占团队任务总量{" "}
+                      <span className="font-semibold text-slate-700">
+                        {taskListWorkloadTotal > 0
+                          ? ((task.workloadPoints / taskListWorkloadTotal) * 100).toFixed(1)
+                          : "0"}
+                        %
                       </span>
-                    </div>
-                  ) : null}
-                  {criticalLabel(task)}
-                  {canReallocateTask(task) ? (
-                    <div className="mt-3">
-                      <button
-                        type="button"
-                        onClick={() => openReallocateDialog(task.id)}
-                        className="rounded-full border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50"
-                      >
-                        ??
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-                <div className="flex flex-col items-center justify-center gap-1 text-[14px] text-slate-500">
-                  <span>
-                    ??????? <span className="font-semibold text-slate-700">{taskListWorkloadTotal > 0 ? ((task.workloadPoints / taskListWorkloadTotal) * 100).toFixed(1) : "0"}%</span>
-                  </span>
-                  <span className="text-xs text-muted">??????????????</span>
-                </div>
-                <div className="flex items-center justify-center">
-                  {data.isOwner ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min={1}
-                        className="w-20 rounded-lg border border-line bg-white px-3 py-2 text-center text-[15px] font-medium text-slate-700 outline-none focus:ring-2 focus:ring-slate-200"
-                        value={editingWorkload[task.id] ?? String(task.workloadPoints)}
-                        onChange={(e) => setEditingWorkload((prev) => ({ ...prev, [task.id]: e.target.value }))}
-                      />
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const raw = editingWorkload[task.id] ?? String(task.workloadPoints);
-                          const next = Math.max(1, Number(raw) || task.workloadPoints);
-                          const ok = await updateTaskWorkload(task.id, next);
-                          if (ok) {
-                            setEditingWorkload((prev) => ({ ...prev, [task.id]: String(next) }));
-                          }
-                        }}
-                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-medium text-slate-700 hover:bg-slate-50"
-                      >
-                        ??
-                      </button>
-                    </div>
-                  ) : (
-                    <span className="rounded-full bg-slate-100 px-4 py-2 text-[15px] font-medium text-slate-600">
-                      {task.workloadPoints} ?
                     </span>
-                  )}
-                </div>
-                <div className="flex flex-col items-center justify-center gap-2 px-1">
-                  <span className="rounded-full bg-slate-100 px-3 py-1.5 text-[12px] font-medium text-slate-600">
-                    {task.status === "UNASSIGNED"
-                      ? "???"
-                      : task.status === "TODO"
-                        ? "???"
-                        : task.status === "IN_PROGRESS"
-                          ? "???"
-                          : task.status === "BLOCKED"
-                            ? "???"
-                            : task.status === "DONE"
-                              ? "???"
-                              : task.status.replaceAll("_", " ")}
-                  </span>
-                  {data.me && !data.isGuest && task.status !== "DONE" && task.status !== "REALLOCATED" && task.status !== "UNASSIGNED" ? (
-                    <div className="flex max-w-[200px] flex-wrap justify-center gap-1">
-                      {task.status === "TODO" ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => void patchTaskStatus(task.id, "UNASSIGNED")}
-                            className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-medium text-slate-800 hover:bg-slate-50"
-                          >
-                            ??
-                          </button>
+                    <span className="text-xs text-muted">相对权重，可结合上方彩条查看</span>
+                  </div>
+                  <div className="flex items-center justify-center">
+                    <span className="rounded-full bg-slate-100 px-4 py-2 text-[15px] font-medium text-slate-600">
+                      {task.workloadPoints} 点
+                    </span>
+                  </div>
+                  <div className="flex flex-col items-center justify-center gap-2 px-1">
+                    <span className="rounded-full bg-slate-100 px-3 py-1.5 text-[12px] font-medium text-slate-600">
+                      {task.status === "UNASSIGNED"
+                        ? "待认领"
+                        : task.status === "TODO"
+                          ? "待开始"
+                          : task.status === "IN_PROGRESS"
+                            ? "进行中"
+                            : task.status === "BLOCKED"
+                              ? "求助中"
+                              : task.status === "DONE"
+                                ? "已完成"
+                                : task.status.replaceAll("_", " ")}
+                    </span>
+                    {data.me && !data.isGuest && task.status !== "DONE" && task.status !== "REALLOCATED" && task.status !== "UNASSIGNED" ? (
+                      <div className="flex max-w-[200px] flex-wrap justify-center gap-1">
+                        {task.status === "TODO" ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => void patchTaskStatus(task.id, "IN_PROGRESS")}
+                              className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-medium text-slate-800 hover:bg-slate-50"
+                            >
+                              开始
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void patchTaskStatus(task.id, "DONE")}
+                              className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-800 hover:bg-emerald-100"
+                            >
+                              完成
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void patchTaskStatus(task.id, "BLOCKED")}
+                              className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-900 hover:bg-amber-100"
+                            >
+                              求助
+                            </button>
+                          </>
+                        ) : null}
+                        {task.status === "IN_PROGRESS" ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => void patchTaskStatus(task.id, "DONE")}
+                              className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-800 hover:bg-emerald-100"
+                            >
+                              完成
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void patchTaskStatus(task.id, "BLOCKED")}
+                              className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-900 hover:bg-amber-100"
+                            >
+                              求助
+                            </button>
+                          </>
+                        ) : null}
+                        {task.status === "BLOCKED" ? (
                           <button
                             type="button"
                             onClick={() => void patchTaskStatus(task.id, "IN_PROGRESS")}
-                            className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-medium text-slate-800 hover:bg-slate-50"
+                            className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-900 hover:bg-sky-100"
                           >
-                            ??
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void patchTaskStatus(task.id, "DONE")}
-                            className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-800 hover:bg-emerald-100"
-                          >
-                            ??
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void patchTaskStatus(task.id, "BLOCKED")}
-                            className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-900 hover:bg-amber-100"
-                          >
-                            ??
-                          </button>
-                        </>
-                      ) : null}
-                      {task.status === "IN_PROGRESS" ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => void patchTaskStatus(task.id, "DONE")}
-                            className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-800 hover:bg-emerald-100"
-                          >
-                            ??
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void patchTaskStatus(task.id, "BLOCKED")}
-                            className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-900 hover:bg-amber-100"
-                          >
-                            ??
-                          </button>
-                        </>
-                      ) : null}
-                      {task.status === "BLOCKED" ? (
-                        <button
-                          type="button"
-                          onClick={() => void patchTaskStatus(task.id, "IN_PROGRESS")}
-                          className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-900 hover:bg-sky-100"
-                        >
-                          ??
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-                <div className="flex flex-col items-center justify-center gap-2 px-1">
-                  <span className="inline-flex min-h-9 min-w-[88px] items-center justify-center rounded-full border border-line bg-emerald-50 px-3 py-1.5 text-[14px] font-semibold text-emerald-800 shadow-card">
-                    {task.assignee?.name ?? "???"}
-                  </span>
-                  {task.status === "UNASSIGNED" && data.me && !data.isGuest ? (
-                    <button
-                      type="button"
-                      onClick={() => void claimTask(task.id)}
-                      className="rounded-full border border-slate-900 bg-slate-900 px-3 py-1 text-[11px] font-medium text-white transition hover:opacity-90"
-                    >
-                      ??
-                    </button>
-                  ) : null}
-                  {data.isOwner ? (
-                    <label className="flex w-full max-w-[140px] flex-col items-stretch gap-0.5">
-                      <span className="text-center text-[10px] text-muted">????</span>
-                      <select
-                        className="w-full rounded-lg border border-line bg-white px-2 py-1 text-left text-[11px] outline-none focus:ring-2 focus:ring-slate-200"
-                        value={task.assignee?.id ?? ""}
-                        onChange={(e) => {
-                          void assignTaskToMember(task.id, e.target.value, task.assignee?.id ?? null);
-                        }}
-                      >
-                        <option value="">???</option>
-                        {data.members.map((m) => (
-                          <option key={m.id} value={m.userId}>
-                            {getDisplayName(m)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  ) : null}
-                </div>
-                <div className="flex items-center justify-center">
-                  <span className="rounded-full bg-slate-100 px-4 py-2 text-[16px] text-slate-600">
-                    {new Date(task.deadline).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="line-card mb-8 overflow-hidden p-8">
-          <div className="mb-4">
-            <h2 className="text-lg font-semibold tracking-tight text-slate-900">??????</h2>
-            <p className="mt-1 text-sm text-muted">????????????????????????</p>
-          </div>
-          <div className="grid grid-cols-[132px_1fr] gap-4">
-            <div />
-            <div className="grid grid-cols-7 gap-3 pb-4 text-center text-[15px] font-semibold text-slate-400">
-              {["4.5", "4.6", "4.7", "4.8", "4.9", "4.10", "4.11"].map((day) => (
-                <div key={day}>{day}</div>
-              ))}
-            </div>
-
-            {data.members.map((member, memberIndex) => {
-              const laneTasks = orderedTasks.filter((task) => task.assignee?.id === member.userId);
-              const layouts = buildLaneLayouts(laneTasks);
-              const laneHeight = Math.max(56, layouts.length > 0 ? layouts.length * 42 + 10 : 56);
-              const lanePts = memberWorkloadPoints(data.tasks, member.userId);
-
-              return (
-                <div key={member.id} className="contents">
-                  <div className="flex flex-col items-center justify-center gap-1 border-r border-line pr-4" style={{ minHeight: `${laneHeight}px` }}>
-                    <span
-                      className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold tabular-nums text-slate-900 shadow-sm"
-                      title={`???????? ${lanePts} ?`}
-                    >
-                      {lanePts} ?
-                    </span>
-                    <span className={`inline-flex min-h-9 min-w-[100px] items-center justify-center rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-slate-700 ${laneTone(memberIndex)}`}>
-                      {getDisplayName(member)}
-                    </span>
-                  </div>
-                  <div
-                    className={`relative border-t border-line border-b border-slate-100 px-2 ${laneTone(memberIndex)}`}
-                    style={{ minHeight: `${laneHeight}px` }}
-                  >
-                    <div className="pointer-events-none absolute inset-y-0 left-[50%] w-px bg-blue-400" />
-                    {layouts.map(({ task, rowIndex, left, width }) => (
-                      <div
-                        key={task.id}
-                        className={`absolute flex min-h-[34px] items-center rounded-full border px-4 py-2 text-[13px] font-semibold shadow-card ${
-                          task.warningLevel === "CRITICAL"
-                            ? "border-red-200 bg-white/90 text-red-500"
-                            : task.warningLevel === "WARNING"
-                              ? "border-amber-200 bg-white/90 text-amber-600"
-                              : "border-emerald-200 bg-white/90 text-emerald-600"
-                        }`}
-                        style={{ left: `${left}%`, width: `${width}%`, top: `${rowIndex * 42 + 8}px` }}
-                      >
-                        <div className="min-w-0 flex-1 truncate">{normalizeTaskTitle(task.title)}</div>
-                        {canReallocateTask(task) ? (
-                          <button
-                            type="button"
-                            onClick={() => openReallocateDialog(task.id)}
-                            className="ml-3 shrink-0 rounded-full border border-current/30 px-2.5 py-1 text-[11px] font-medium"
-                          >
-                            ??
+                            继续
                           </button>
                         ) : null}
                       </div>
-                    ))}
+                    ) : null}
+                  </div>
+                  <div className="flex flex-col items-center justify-center gap-2 px-1">
+                    <span className="inline-flex min-h-9 min-w-[88px] items-center justify-center rounded-full border border-line bg-emerald-50 px-3 py-1.5 text-[14px] font-semibold text-emerald-800 shadow-card">
+                      {task.assignee?.name ?? "未分配"}
+                    </span>
+                    {task.status === "UNASSIGNED" && data.me && !data.isGuest ? (
+                      <button
+                        type="button"
+                        onClick={() => void claimTask(task.id)}
+                        className="rounded-full border border-slate-900 bg-slate-900 px-3 py-1 text-[11px] font-medium text-white transition hover:opacity-90"
+                      >
+                        认领
+                      </button>
+                    ) : null}
+                    {data.isOwner ? (
+                      <label className="flex w-full max-w-[140px] flex-col items-stretch gap-0.5">
+                        <span className="text-center text-[10px] text-muted">队长指派</span>
+                        <select
+                          className="w-full rounded-lg border border-line bg-white px-2 py-1 text-left text-[11px] outline-none focus:ring-2 focus:ring-slate-200"
+                          value={task.assignee?.id ?? ""}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (!v) return;
+                            void assignTaskToMember(task.id, v, task.assignee?.id ?? null);
+                          }}
+                        >
+                          <option value="">选择成员…</option>
+                          {data.members.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {getDisplayName(m)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center justify-center">
+                    <span className="rounded-full bg-slate-100 px-4 py-2 text-[16px] text-slate-600">
+                      {new Date(task.deadline).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })}
+                    </span>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        </section>
+              ))}
+            </div>
+          </section>
+        ) : view === "gantt" ? (
+          <section className="line-card mb-8 overflow-hidden p-8">
+            <div className="mb-6">
+              <MemberWorkloadStrip members={data.members} tasks={data.tasks} />
+              {taskActionMessage ? (
+                <p className="mt-3 text-center text-sm text-slate-700">{taskActionMessage}</p>
+              ) : null}
+            </div>
+            <div className="grid grid-cols-[132px_1fr] gap-4">
+              <div />
+              <div className="grid grid-cols-7 gap-3 pb-4 text-center text-[15px] font-semibold text-slate-400">
+                {["4.5", "4.6", "4.7", "4.8", "4.9", "4.10", "4.11"].map((day) => (
+                  <div key={day}>{day}</div>
+                ))}
+              </div>
+
+              {data.members.map((member, memberIndex) => {
+                const laneTasks = orderedTasks.filter((task) => task.assignee?.id === member.id);
+                const layouts = buildLaneLayouts(laneTasks);
+                const laneHeight = Math.max(56, layouts.length > 0 ? layouts.length * 42 + 10 : 56);
+                const lanePts = memberWorkloadPoints(data.tasks, member.id);
+
+                return (
+                  <div key={member.id} className="contents">
+                    <div className="flex flex-col items-center justify-center gap-1 border-r border-line pr-4" style={{ minHeight: `${laneHeight}px` }}>
+                      <span
+                        className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold tabular-nums text-slate-900 shadow-sm"
+                        title={`进行中任务工作量 ${lanePts} 点`}
+                      >
+                        {lanePts} 点
+                      </span>
+                      <span className={`inline-flex min-h-9 min-w-[100px] items-center justify-center rounded-full border border-line px-3 py-1.5 text-[13px] font-semibold text-slate-700 ${laneTone(memberIndex)}`}>
+                        {getDisplayName(member)}
+                      </span>
+                    </div>
+                    <div
+                      className={`relative border-t border-line border-b border-slate-100 px-2 ${laneTone(memberIndex)}`}
+                      style={{ minHeight: `${laneHeight}px` }}
+                    >
+                      <div className="pointer-events-none absolute inset-y-0 left-[50%] w-px bg-blue-400" />
+                      {layouts.map(({ task, rowIndex, left, width }) => (
+                        <div
+                          key={task.id}
+                          className={`absolute flex min-h-[34px] items-center rounded-full border px-4 py-2 text-[13px] font-semibold shadow-card ${
+                            task.warningLevel === "CRITICAL"
+                              ? "border-red-200 bg-white/90 text-red-500"
+                              : task.warningLevel === "WARNING"
+                                ? "border-amber-200 bg-white/90 text-amber-600"
+                                : "border-emerald-200 bg-white/90 text-emerald-600"
+                          }`}
+                          style={{
+                            left: `${left}%`,
+                            width: `${width}%`,
+                            top: `${rowIndex * 42 + 8}px`
+                          }}
+                        >
+                          <div className="min-w-0 flex-1 truncate">{normalizeTaskTitle(task.title)}</div>
+                          {canReallocateTask(task) ? (
+                            <button
+                              type="button"
+                              onClick={() => openReallocateDialog(task.id)}
+                              className="ml-3 shrink-0 rounded-full border border-current/30 px-2.5 py-1 text-[11px] font-medium"
+                            >
+                              重新分配
+                            </button>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
 
         <section className="line-card p-8">
           <div className="mb-6 flex items-center gap-3 text-[32px] font-semibold tracking-tight">

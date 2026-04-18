@@ -10,7 +10,7 @@ const statusSchema = z.object({
   assigneeId: z.string().optional()
 });
 
-async function handleStatusUpdate(request: NextRequest, params: Promise<{ id: string }>) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     const body = statusSchema.parse(await request.json());
@@ -66,9 +66,7 @@ async function handleStatusUpdate(request: NextRequest, params: Promise<{ id: st
 
     let nextAssigneeId: string | null = task.assigneeId;
 
-    if (body.status === "UNASSIGNED") {
-      nextAssigneeId = null;
-    } else if (body.assigneeId !== undefined) {
+    if (body.assigneeId !== undefined) {
       if (body.assigneeId !== userId) {
         if (!(await isProjectOwner(task.projectId, userId))) {
           return NextResponse.json({ error: "仅队长可将任务指派给其他成员" }, { status: 403 });
@@ -112,12 +110,4 @@ async function handleStatusUpdate(request: NextRequest, params: Promise<{ id: st
       { status: 400 }
     );
   }
-}
-
-export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  return handleStatusUpdate(request, params);
-}
-
-export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  return handleStatusUpdate(request, params);
 }
