@@ -4,10 +4,11 @@ import { prisma } from "@/lib/prisma";
 import { requireProjectOwner } from "@/lib/auth";
 
 const updateSchema = z.object({
-  title: z.string().min(1).max(60).optional()
+  title: z.string().min(1).max(60).optional(),
+  deadline: z.string().datetime().optional()
 });
 
-/** PATCH /api/projects/[id] — 修改项目名称（仅组长） */
+/** PATCH /api/projects/[id] — 修改项目名称和截止时间（仅组长） */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id: projectId } = await params;
@@ -18,9 +19,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const updated = await prisma.project.update({
       where: { id: projectId },
       data: {
-        ...(body.title !== undefined && { title: body.title.trim() })
+        ...(body.title !== undefined && { title: body.title.trim() }),
+        ...(body.deadline !== undefined && { deadline: new Date(body.deadline) })
       },
-      select: { id: true, title: true }
+      select: { id: true, title: true, deadline: true }
     });
 
     return NextResponse.json({ ok: true, project: updated });

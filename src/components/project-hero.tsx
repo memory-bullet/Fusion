@@ -6,6 +6,7 @@ import { AlertCountdownBadge } from "@/components/alert-countdown-badge";
 import { ProjectInviteChips } from "@/components/project-invite-chips";
 import { ProjectEditModal } from "@/components/project-edit-modal";
 import { ProjectSwitcher } from "@/components/project-switcher";
+import { DeadlineDisplay } from "@/components/deadline-display";
 import { DashboardData, DashboardTask } from "@/lib/types";
 
 export function ProjectHero({
@@ -26,12 +27,12 @@ export function ProjectHero({
   /** 项目 ID，用于编辑弹窗 */
   projectId?: string;
   /** 项目名更新回调 */
-  onProjectUpdated?: (newTitle: string) => void;
+  onProjectUpdated?: (newTitle: string, newDeadline?: string) => void;
 }) {
   const [editOpen, setEditOpen] = useState(false);
 
-  function handleUpdated(newTitle: string) {
-    onProjectUpdated?.(newTitle);
+  function handleUpdated(newTitle: string, newDeadline?: string) {
+    onProjectUpdated?.(newTitle, newDeadline);
   }
 
   const displayTitle = title ?? project.title;
@@ -72,7 +73,10 @@ export function ProjectHero({
           </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-muted">
-          <span>截止时间：{new Date(project.deadline).toLocaleString()}</span>
+          <span className="flex items-center gap-2">
+            截止时间：
+            <DeadlineDisplay deadline={project.deadline} size="normal" />
+          </span>
           {activeTask ? <AlertCountdownBadge level={activeTask.warningLevel} /> : null}
         </div>
         <p className="mt-4 max-w-3xl text-base text-muted">{subtitle ?? project.contextSummary}</p>
@@ -84,6 +88,7 @@ export function ProjectHero({
           open={editOpen}
           projectId={projectId}
           projectTitle={displayTitle}
+          projectDeadline={project.deadline}
           inviteCode={project.inviteCode}
           isOwner={isOwner}
           onClose={() => setEditOpen(false)}

@@ -23,18 +23,30 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const formData = await request.formData();
     const file = formData.get("file");
-    if (!(file instanceof File)) {
-      return NextResponse.json({ error: "请上传文件" }, { status: 400 });
-    }
+    const textInput = formData.get("text");
 
     let requirementText: string;
-    try {
-      requirementText = await extractDocumentTextFromFile(file);
-    } catch (e) {
-      return NextResponse.json(
-        { error: e instanceof Error ? e.message : "文档读取失败" },
-        { status: 400 }
-      );
+
+    // 支持文本输入或文件上传（互斥）
+    if (textInput && typeof textInput === "string") {
+      if (textInput.trim().length === 0) {
+        return NextResponse.json({ error: "文本内容不能为空" }, { status: 400 });
+      }
+      if (textInput.length > 8000) {
+        return NextResponse.json({ error: "文本内容超过 8000 字符限制" }, { status: 400 });
+      }
+      requirementText = textInput.trim();
+    } else if (file instanceof File) {
+      try {
+        requirementText = await extractDocumentTextFromFile(file);
+      } catch (e) {
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : "文档读取失败" },
+          { status: 400 }
+        );
+      }
+    } else {
+      return NextResponse.json({ error: "请上传文件或输入文本" }, { status: 400 });
     }
 
     const ai = await parseRequirementWithAI(requirementText);

@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, BellRing, FileUp, Loader2, RefreshCw, Trash2, Users, Plus, X, UserCog, UserMinus, Share2 } from "lucide-react";
+import { ArrowLeft, BellRing, FileUp, Loader2, RefreshCw, Trash2, Users, Plus, X, UserCog, UserMinus, Share2, CheckCircle, XCircle, Calendar } from "lucide-react";
 import { TopNav } from "@/components/top-nav";
 import { ProjectHero } from "@/components/project-hero";
 import { ReallocateDialog } from "@/components/reallocate-dialog";
 import { ProjectInvitePanel } from "@/components/project-invite-panel";
+import { DeadlineDisplay } from "@/components/deadline-display";
 import { useProjectDashboard } from "@/lib/use-project-dashboard";
 import { buildDraftFromSuggested, type TaskDraftRow } from "@/lib/task-draft";
 import { formatMilestoneDueDisplay } from "@/lib/assignment-milestones";
@@ -18,6 +19,7 @@ import { ProjectAiChatPanel } from "@/components/project-ai-chat-panel";
 import type { TaskStatus } from "@/lib/domain";
 import { DashboardData, DashboardTask } from "@/lib/types";
 import { getDisplayName } from "@/lib/display-name";
+import { uploadFileWithProgress, formatFileSize, type UploadQueueItem } from "@/lib/upload-queue";
 
 function statusTone(task: DashboardTask) {
   if (task.warningLevel === "CRITICAL") return "text-red-500";
@@ -136,10 +138,17 @@ function classifyLog(actionType: string) {
     };
   }
 
-  if (actionType === "TASK_ASSIGNED") {
+  if (actionType === "TASK_ASSIGNED" || actionType === "AI_AUTO_ASSIGNED") {
     return {
       label: "任务分配",
       className: "border-violet-100 bg-violet-50 text-violet-800"
+    };
+  }
+
+  if (actionType === "TASK_RENAMED") {
+    return {
+      label: "任务重命名",
+      className: "border-indigo-100 bg-indigo-50 text-indigo-800"
     };
   }
 
@@ -147,6 +156,55 @@ function classifyLog(actionType: string) {
     return {
       label: "最后通牒",
       className: "border-red-200 bg-red-50 text-red-800"
+    };
+  }
+
+  if (actionType === "DOCUMENT_UPLOAD" || actionType === "DOCUMENT_CREATED") {
+    return {
+      label: "文档上传",
+      className: "border-blue-100 bg-blue-50 text-blue-800"
+    };
+  }
+
+  if (actionType === "DOCUMENT_DESCRIPTION") {
+    return {
+      label: "文档更新",
+      className: "border-cyan-100 bg-cyan-50 text-cyan-800"
+    };
+  }
+
+  if (actionType === "MEMBER_JOINED" || actionType === "MEMBER_ACTIVATED") {
+    return {
+      label: "成员加入",
+      className: "border-green-100 bg-green-50 text-green-800"
+    };
+  }
+
+  if (actionType === "OWNER_TRANSFERRED") {
+    return {
+      label: "队长转让",
+      className: "border-purple-100 bg-purple-50 text-purple-800"
+    };
+  }
+
+  if (actionType === "OWNER_COMMITTED_TASKS") {
+    return {
+      label: "任务提交",
+      className: "border-teal-100 bg-teal-50 text-teal-800"
+    };
+  }
+
+  if (actionType === "AI_PARSED_CONTEXT") {
+    return {
+      label: "AI 解析",
+      className: "border-fuchsia-100 bg-fuchsia-50 text-fuchsia-800"
+    };
+  }
+
+  if (actionType === "PROJECT_CREATED") {
+    return {
+      label: "项目创建",
+      className: "border-lime-100 bg-lime-50 text-lime-800"
     };
   }
 
@@ -203,8 +261,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
   const [view, setView] = useState<"list" | "gantt" | "kanban">("kanban");
   const [digestBusy, setDigestBusy] = useState(false);
   const digestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [uploadPhase, setUploadPhase] = useState<"idle" | "processing">("idle");
-  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [draftTasks, setDraftTasks] = useState<TaskDraftRow[] | null>(null);
@@ -215,26 +272,167 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
   const [reallocateLoading, setReallocateLoading] = useState(false);
   const [reallocateError, setReallocateError] = useState<string | null>(null);
   const [taskActionMessage, setTaskActionMessage] = useState<string | null>(null);
+  const [editingDeadlineTaskId, setEditingDeadlineTaskId] = useState<string | null>(null);
+  const [deadlineInput, setDeadlineInput] = useState("");
+  const [showAllLogs, setShowAllLogs] = useState(false);
+  const [inputMode, setInputMode] = useState<"file" | "text">("file");
+  const [textRequirement, setTextRequirement] = useState("");
+  const [textSubmitting, setTextSubmitting] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const activeUploadsRef = useRef(0);
+  const MAX_CONCURRENT_UPLOADS = 2;
 
-  const runUpload = useCallback(
-    async (file: File, isOwner: boolean, members: { id: string }[]) => {
+  // 添加文件到上传队列
+  const addFilesToQueue = useCallback((files: File[], isOwner: boolean) => {
+    if (!isOwner) {
+      return;
+    }
+    const newItems: UploadQueueItem[] = Array.from(files).map((file) => ({
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      file,
+      progress: 0,
+      status: "pending" as const
+    }));
+    setUploadQueue((prev) => [...prev, ...newItems]);
+  }, []);
+
+  // 处理单个文件上传
+  const processUpload = useCallback(
+    (item: UploadQueueItem, members: { id: string }[]) => {
+      const url = `/api/projects/${projectId}/requirement-upload`;
+
+      const xhr = uploadFileWithProgress(
+        item.file,
+        url,
+        (progress) => {
+          setUploadQueue((prev) =>
+            prev.map((i) =>
+              i.id === item.id ? { ...i, progress, status: "uploading" as const } : i
+            )
+          );
+        },
+        async (response: unknown) => {
+          activeUploadsRef.current -= 1;
+          setUploadQueue((prev) =>
+            prev.map((i) =>
+              i.id === item.id ? { ...i, progress: 100, status: "success" as const } : i
+            )
+          );
+
+          // 处理响应数据
+          const parsePayload = response as {
+            suggestedTasks?: Array<{
+              title?: unknown;
+              workloadPoints?: unknown;
+              deadlineOffsetHours?: unknown;
+            }>;
+          };
+
+          await refresh();
+
+          const suggested = parsePayload.suggestedTasks;
+          if (Array.isArray(suggested) && suggested.length > 0 && members.length > 0) {
+            const normalized = suggested
+              .map((t) => ({
+                title: String(t.title ?? "").trim(),
+                workloadPoints: Number(t.workloadPoints),
+                deadlineOffsetHours: Number(t.deadlineOffsetHours)
+              }))
+              .filter(
+                (t) =>
+                  t.title.length > 0 &&
+                  Number.isInteger(t.workloadPoints) &&
+                  t.workloadPoints > 0 &&
+                  Number.isInteger(t.deadlineOffsetHours) &&
+                  t.deadlineOffsetHours >= 1 &&
+                  t.deadlineOffsetHours <= 240
+              );
+            const rows = buildDraftFromSuggested(normalized, members);
+            setDraftTasks(rows.length > 0 ? rows : null);
+          }
+
+          // 处理队列中的下一个文件
+          processNextInQueue();
+        },
+        (error) => {
+          activeUploadsRef.current -= 1;
+          setUploadQueue((prev) =>
+            prev.map((i) =>
+              i.id === item.id ? { ...i, status: "error" as const, error } : i
+            )
+          );
+          processNextInQueue();
+        }
+      );
+
+      setUploadQueue((prev) =>
+        prev.map((i) => (i.id === item.id ? { ...i, xhr, status: "uploading" as const } : i))
+      );
+    },
+    [projectId, refresh]
+  );
+
+  // 处理队列中的下一个待上传文件
+  const processNextInQueue = useCallback(() => {
+    if (!data?.isOwner || !data?.members) return;
+
+    setUploadQueue((prev) => {
+      const pending = prev.find((item) => item.status === "pending");
+      if (pending && activeUploadsRef.current < MAX_CONCURRENT_UPLOADS) {
+        activeUploadsRef.current += 1;
+        processUpload(pending, data.members);
+      }
+      return prev;
+    });
+  }, [data?.isOwner, data?.members, processUpload, MAX_CONCURRENT_UPLOADS]);
+
+  // 监听队列变化，自动处理待上传文件
+  useEffect(() => {
+    processNextInQueue();
+  }, [uploadQueue, processNextInQueue]);
+
+  // 取消单个上传
+  const cancelUpload = useCallback((id: string) => {
+    setUploadQueue((prev) => {
+      const item = prev.find((i) => i.id === id);
+      if (item?.xhr && item.status === "uploading") {
+        item.xhr.abort();
+        activeUploadsRef.current -= 1;
+      }
+      return prev.filter((i) => i.id !== id);
+    });
+  }, []);
+
+  // 清除已完成或失败的上传
+  const clearCompletedUploads = useCallback(() => {
+    setUploadQueue((prev) =>
+      prev.filter((item) => item.status === "pending" || item.status === "uploading")
+    );
+  }, []);
+
+  // 提交文本要求
+  const runTextSubmit = useCallback(
+    async (text: string, isOwner: boolean, members: { id: string }[]) => {
       setUploadError(null);
       setCommitError(null);
       if (!isOwner) {
-        setUploadError("仅项目创建者（组长）可在此上传文档并生成可编辑的任务草稿。");
+        setUploadError("仅项目创建者（组长）可在此提交文本并生成可编辑的任务草稿。");
         return;
       }
-      setUploadPhase("processing");
+      if (!text.trim()) {
+        setUploadError("请输入文本内容");
+        return;
+      }
+      setTextSubmitting(true);
       try {
-        const formData = new FormData();
-        formData.append("file", file);
-        const res = await fetch(`/api/projects/${projectId}/requirement-upload`, {
+        const res = await fetch(`/api/projects/${projectId}/requirement-text`, {
           method: "POST",
-          body: formData
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: text.trim() })
         });
         const parsePayload = await res.json();
         if (!res.ok) {
-          throw new Error(typeof parsePayload.error === "string" ? parsePayload.error : "文档处理失败");
+          throw new Error(typeof parsePayload.error === "string" ? parsePayload.error : "文本处理失败");
         }
 
         await refresh();
@@ -258,13 +456,14 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
             );
           const rows = buildDraftFromSuggested(normalized, members);
           setDraftTasks(rows.length > 0 ? rows : null);
+          setTextRequirement(""); // 清空输入框
         } else {
           setDraftTasks(null);
         }
       } catch (e) {
-        setUploadError(e instanceof Error ? e.message : "上传处理失败");
+        setUploadError(e instanceof Error ? e.message : "提交处理失败");
       } finally {
-        setUploadPhase("idle");
+        setTextSubmitting(false);
       }
     },
     [projectId, refresh]
@@ -355,6 +554,25 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
       scheduleProgressDigest();
     },
     [refresh, scheduleProgressDigest]
+  );
+
+  const updateTaskDeadline = useCallback(
+    async (taskId: string, deadline: string) => {
+      setTaskActionMessage(null);
+      const res = await fetch(`/api/tasks/${taskId}/deadline`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deadline })
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setTaskActionMessage(typeof payload.error === "string" ? payload.error : "更新截止时间失败");
+        return;
+      }
+      setEditingDeadlineTaskId(null);
+      await refresh();
+    },
+    [refresh]
   );
 
   const claimTask = useCallback(
@@ -473,7 +691,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
   }));
 
   const visibleLogs = dedupeLogs(data.logs).slice(0, 6);
-  const busy = uploadPhase !== "idle";
+  const busy = uploadQueue.some((item) => item.status === "uploading") || textSubmitting;
   const canCommitDraft = data.isOwner && Boolean(draftTasks?.length) && !commitLoading && !busy;
   const selectedTask = orderedTasks.find((task) => task.id === reallocateTaskId) ?? null;
 
@@ -520,6 +738,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
           }
           projectId={projectId}
           isOwner={data.isOwner}
+          onProjectUpdated={() => void refresh()}
         />
         <div className="mb-6">
           <Link
@@ -576,75 +795,135 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
         />
 
         <section className="line-card mb-8 p-6">
-          <div className="grid gap-4 lg:grid-cols-[1.05fr_1fr]">
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="sr-only"
-              accept={ACCEPT_UPLOAD}
-              disabled={busy || !data.isOwner}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                if (file) void runUpload(file, data.isOwner, data.members);
-              }}
-            />
+          <div className="mb-4 flex gap-2 border-b border-line">
             <button
               type="button"
-              disabled={busy || !data.isOwner}
-              onClick={() => fileInputRef.current?.click()}
-              onDragEnter={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (!busy && data.isOwner) setDragActive(true);
-              }}
-              onDragLeave={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setDragActive(false);
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setDragActive(false);
-                if (busy || !data.isOwner) return;
-                const file = e.dataTransfer.files?.[0];
-                if (file) void runUpload(file, data.isOwner, data.members);
-              }}
-              className={`rounded-[28px] border border-dashed bg-white p-10 text-center transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-60 ${
-                dragActive ? "border-blue-400 bg-blue-50/40" : "border-slate-200"
+              onClick={() => setInputMode("file")}
+              className={`px-4 py-2 text-sm font-medium transition ${
+                inputMode === "file"
+                  ? "border-b-2 border-blue-500 text-blue-600"
+                  : "text-slate-600 hover:text-slate-800"
               }`}
             >
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-line bg-slate-50">
-                {busy ? (
-                  <Loader2 className="h-7 w-7 animate-spin text-blue-500" />
-                ) : (
-                  <FileUp className="h-7 w-7 text-slate-500" />
-                )}
-              </div>
-              <div className="mt-6 text-3xl font-semibold tracking-tight">上传作业要求文档</div>
-              <p className="mt-3 text-sm text-muted">
-                支持 PDF、Word（.docx）、Markdown、HTML、纯文本与常见图片（含 HEIC）；点击或拖拽到此处，将自动提取文本并由 AI 解析（含时间节点与建议任务）。
-              </p>
-              {!data.isOwner ? (
-                <p className="mt-4 text-sm font-medium text-amber-700">仅组长可在此上传并生成任务草稿。</p>
-              ) : null}
+              上传文件
             </button>
+            <button
+              type="button"
+              onClick={() => setInputMode("text")}
+              className={`px-4 py-2 text-sm font-medium transition ${
+                inputMode === "text"
+                  ? "border-b-2 border-blue-500 text-blue-600"
+                  : "text-slate-600 hover:text-slate-800"
+              }`}
+            >
+              粘贴文本
+            </button>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[1.05fr_1fr]">
+            {inputMode === "file" ? (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="sr-only"
+                  accept={ACCEPT_UPLOAD}
+                  disabled={busy || !data.isOwner}
+                  onChange={(e) => {
+                    const files = e.target.files;
+                    e.target.value = "";
+                    if (files && files.length > 0) {
+                      addFilesToQueue(Array.from(files), data.isOwner);
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={busy || !data.isOwner}
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragEnter={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!busy && data.isOwner) setDragActive(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setDragActive(false);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setDragActive(false);
+                    if (busy || !data.isOwner) return;
+                    const files = e.dataTransfer.files;
+                    if (files && files.length > 0) {
+                      addFilesToQueue(Array.from(files), data.isOwner);
+                    }
+                  }}
+                  className={`rounded-[28px] border border-dashed bg-white p-10 text-center transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-60 ${
+                    dragActive ? "border-blue-400 bg-blue-50/40" : "border-slate-200"
+                  }`}
+                >
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-line bg-slate-50">
+                    {busy ? (
+                      <Loader2 className="h-7 w-7 animate-spin text-blue-500" />
+                    ) : (
+                      <FileUp className="h-7 w-7 text-slate-500" />
+                    )}
+                  </div>
+                  <div className="mt-6 text-3xl font-semibold tracking-tight">上传作业要求文档</div>
+                  <p className="mt-3 text-sm text-muted">
+                    支持 PDF、Word（.docx）、Markdown、HTML、纯文本与常见图片（含 HEIC）；点击或拖拽到此处，将自动提取文本并由 AI 解析（含时间节点与建议任务）。
+                  </p>
+                  {!data.isOwner ? (
+                    <p className="mt-4 text-sm font-medium text-amber-700">仅组长可在此上传并生成任务草稿。</p>
+                  ) : null}
+                </button>
+              </>
+            ) : (
+              <div className="rounded-[28px] border border-slate-200 bg-white p-6">
+                <div className="mb-4 text-xl font-semibold tracking-tight">粘贴作业要求文本</div>
+                <textarea
+                  value={textRequirement}
+                  onChange={(e) => setTextRequirement(e.target.value)}
+                  disabled={busy || !data.isOwner}
+                  maxLength={8000}
+                  placeholder="粘贴作业要求文本，支持纯文本或 Markdown 格式"
+                  className="mb-4 min-h-[240px] w-full resize-y rounded-lg border border-slate-200 p-4 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400/20 disabled:cursor-not-allowed disabled:opacity-60"
+                />
+                <div className="mb-4 flex items-center justify-between text-sm text-muted">
+                  <span>{textRequirement.length} / 8000 字符</span>
+                </div>
+                <button
+                  type="button"
+                  disabled={busy || !data.isOwner || textRequirement.trim().length === 0}
+                  onClick={() => void runTextSubmit(textRequirement, data.isOwner, data.members)}
+                  className="w-full rounded-lg bg-blue-500 px-6 py-3 font-medium text-white transition hover:bg-blue-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {busy ? "处理中..." : "提交文本要求"}
+                </button>
+                {!data.isOwner ? (
+                  <p className="mt-4 text-sm font-medium text-amber-700">仅组长可在此提交并生成任务草稿。</p>
+                ) : null}
+              </div>
+            )}
 
             <div className="soft-panel rounded-[28px] p-6">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-3 text-lg font-semibold">
-                  {uploadPhase === "processing" ? (
+                  {busy ? (
                     <Loader2 className="h-5 w-5 shrink-0 animate-spin text-blue-500" />
                   ) : (
                     <RefreshCw className="h-5 w-5 shrink-0 text-slate-400" />
                   )}
                   <span className="truncate">
-                    {uploadPhase === "processing"
+                    {busy
                       ? "正在读取文档并由 AI 解析（可能需要 1～3 分钟）…"
                       : deliverables.length > 0
                         ? "AI 已提取关键产出物"
@@ -1025,9 +1304,56 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                     ) : null}
                   </div>
                   <div className="flex items-center justify-center">
-                    <span className="rounded-full bg-slate-100 px-4 py-2 text-[16px] text-slate-600">
-                      {new Date(task.deadline).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })}
-                    </span>
+                    {data.isOwner && editingDeadlineTaskId === task.id ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="datetime-local"
+                          value={deadlineInput}
+                          onChange={(e) => setDeadlineInput(e.target.value)}
+                          className="rounded-lg border border-slate-200 px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-slate-200"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (deadlineInput) {
+                              void updateTaskDeadline(task.id, new Date(deadlineInput).toISOString());
+                            }
+                          }}
+                          className="rounded-lg bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-800"
+                        >
+                          保存
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingDeadlineTaskId(null)}
+                          className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                        >
+                          取消
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (data.isOwner) {
+                            const d = new Date(task.deadline);
+                            const year = d.getFullYear();
+                            const month = String(d.getMonth() + 1).padStart(2, "0");
+                            const day = String(d.getDate()).padStart(2, "0");
+                            const hours = String(d.getHours()).padStart(2, "0");
+                            const minutes = String(d.getMinutes()).padStart(2, "0");
+                            setDeadlineInput(`${year}-${month}-${day}T${hours}:${minutes}`);
+                            setEditingDeadlineTaskId(task.id);
+                          }
+                        }}
+                        disabled={!data.isOwner}
+                        className={`rounded-full bg-slate-100 px-4 py-2 text-lg text-slate-600 ${
+                          data.isOwner ? "hover:bg-slate-200 cursor-pointer" : "cursor-default"
+                        }`}
+                      >
+                        <DeadlineDisplay deadline={task.deadline} size="normal" showCountdown={false} />
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1136,8 +1462,64 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
               );
             })}
           </div>
+          {dedupeLogs(data.logs).length > 6 ? (
+            <div className="mt-6 flex justify-center">
+              <button
+                type="button"
+                onClick={() => setShowAllLogs(true)}
+                className="rounded-full border border-slate-300 bg-white px-6 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 hover:border-slate-400"
+              >
+                查看全部日志
+              </button>
+            </div>
+          ) : null}
         </section>
       </div>
+
+      {showAllLogs ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowAllLogs(false)}>
+          <div className="relative max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-8 py-6">
+              <div className="flex items-center gap-3">
+                <BellRing className="h-7 w-7 text-slate-400" />
+                <h2 className="text-2xl font-semibold tracking-tight">全部日志</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAllLogs(false)}
+                className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+            <div className="max-h-[calc(90vh-88px)] overflow-y-auto p-8">
+              <div className="space-y-4">
+                {dedupeLogs(data.logs).map((log) => {
+                  const meta = classifyLog(log.actionType);
+                  const content = splitLogDescription(log.description);
+
+                  return (
+                    <div key={log.id} className={`rounded-2xl border px-6 py-5 ${meta.className}`}>
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="text-sm font-semibold tracking-wide">{meta.label}</div>
+                        <div className="text-sm opacity-80">{formatLogTime(log.createdAt)}</div>
+                      </div>
+                      <div className="mt-2 text-sm opacity-80">相关人：{log.user.name}</div>
+                      <div className="mt-3 text-lg leading-8">{content.main}</div>
+                      {content.penalty ? (
+                        <div className="mt-3 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">
+                          {content.penalty}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <ReallocateDialog
         open={Boolean(selectedTask)}
         task={selectedTask}
