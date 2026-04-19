@@ -47,6 +47,8 @@ export async function POST(request: NextRequest) {
     });
 
     let presetActivated = false;
+    /** 事务外通知用：preset 在回调内声明，删除前记下名称 */
+    let activatedPresetName: string | null = null;
 
     await prisma.$transaction(async (tx) => {
       // 激活预设（如果提供了 presetId）
@@ -55,6 +57,7 @@ export async function POST(request: NextRequest) {
         console.log('[join-by-invite] Found preset:', preset ? { id: preset.id, name: preset.presetName } : null);
 
         if (preset && preset.projectId === projectId) {
+          activatedPresetName = preset.presetName;
           // 删除预设记录（而不是标记为已激活）
           await tx.memberPreset.delete({
             where: { id: body.presetId }
@@ -120,7 +123,7 @@ export async function POST(request: NextRequest) {
       kind: "PROJECT_JOINED",
       title: "成功加入项目",
       body: presetActivated
-        ? `你已成功加入项目，项目内昵称为「${preset?.presetName || ""}」`
+        ? `你已成功加入项目，项目内昵称为「${activatedPresetName ?? ""}」`
         : "你已成功加入项目",
       actionUrl: `/project/${projectId}`
     });

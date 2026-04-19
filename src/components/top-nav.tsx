@@ -1,4 +1,4 @@
-﻿﻿"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -33,7 +33,7 @@ export function TopNav() {
         <div className="flex min-w-0 flex-1 items-center gap-2 text-neutral-900 sm:gap-3">
           {!isHome ? (
             <Link
-              href={getBackHref()}
+              href={getBackHref() as "/" | `/project/${string}`}
               className="inline-flex shrink-0 items-center gap-1 rounded-xl border border-neutral-200 bg-white px-2.5 py-1.5 text-sm font-medium text-neutral-800 transition hover:bg-neutral-50 hover:text-neutral-900"
               aria-label="返回上一层"
             >

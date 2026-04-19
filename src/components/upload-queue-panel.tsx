@@ -7,6 +7,8 @@ import { buildDraftFromSuggested, type TaskDraftRow } from "@/lib/task-draft";
 
 type UploadQueuePanelProps = {
   projectId: string;
+  /** 用于根据 offset 计算任务草稿截止日期（与 manage 页 requirement-upload 一致） */
+  projectDeadline: string | Date;
   isOwner: boolean;
   members: Array<{ id: string }>;
   onTasksGenerated: (tasks: TaskDraftRow[] | null) => void;
@@ -20,6 +22,7 @@ const MAX_CONCURRENT_UPLOADS = 2;
 
 export function UploadQueuePanel({
   projectId,
+  projectDeadline,
   isOwner,
   members,
   onTasksGenerated,
@@ -95,7 +98,7 @@ export function UploadQueuePanel({
                   t.deadlineOffsetHours >= 1 &&
                   t.deadlineOffsetHours <= 240
               );
-            const rows = buildDraftFromSuggested(normalized, members);
+            const rows = buildDraftFromSuggested(normalized, members, projectDeadline);
             onTasksGenerated(rows.length > 0 ? rows : null);
           }
         },
@@ -113,7 +116,7 @@ export function UploadQueuePanel({
         prev.map((i) => (i.id === item.id ? { ...i, xhr, status: "uploading" } : i))
       );
     },
-    [projectId, members, onRefresh, onTasksGenerated]
+    [projectId, projectDeadline, members, onRefresh, onTasksGenerated]
   );
 
   // 处理队列中的下一个待上传文件

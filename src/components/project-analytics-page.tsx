@@ -139,11 +139,14 @@ function parseAppealLogs(
         payload = {};
       }
 
+      const scoreType: AppealLogItem["scoreType"] =
+        payload.scoreType === "DIMENSION" ? "DIMENSION" : "TOTAL";
+
       return {
         id: log.id,
         createdAt: log.createdAt,
         memberName: log.user?.name || "成员",
-        scoreType: payload.scoreType === "DIMENSION" ? "DIMENSION" : "TOTAL",
+        scoreType,
         expectedScore: typeof payload.expectedScore === "number" ? payload.expectedScore : null,
         dimensionName: typeof payload.dimensionName === "string" ? payload.dimensionName : null,
         reason: typeof payload.reason === "string" ? payload.reason : "未填写",

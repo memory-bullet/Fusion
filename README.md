@@ -26,6 +26,8 @@ npm run dev
 
 - **报错 `The column ... progressDigest does not exist` 或 Task 新字段不存在**：本地库落后于 `schema.prisma`。请先**停止** `npm run dev`，再执行 `npx prisma migrate deploy`（或开发时用 `npx prisma db push`），然后 `npx prisma generate`，再启动 dev。
 - **接口报错 / 页面空白 / Prisma P1001**：`.env` 里若写了 `postgresql://...` 但本机没有跑 Postgres，会连不上库。请改回 `DATABASE_URL="file:./dev.db"` 或先启动数据库。
+- **SQLite 文件在哪**：`DATABASE_URL="file:./dev.db"` 相对 **`prisma/schema.prisma`** 解析，实际路径是 **`prisma/dev.db`**（不是仓库根目录下的 `dev.db`）。删库重建时请删 **`prisma/dev.db`**。
+- **P3009（存在失败迁移记录）**：停 dev 后删 **`prisma/dev.db`**（及 `prisma/dev.db-journal`），再执行 `npx prisma migrate deploy`；或按 [Prisma 文档](https://www.prisma.io/docs/guides/migrate/troubleshooting-development) 对失败迁移 `migrate resolve`。
 - **迁移失败 P3018 / 表已存在**：本地 SQLite 状态异常时执行（**会清空本地数据**）：
 
 ```bash

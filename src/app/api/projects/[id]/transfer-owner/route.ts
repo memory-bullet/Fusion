@@ -16,7 +16,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const project = await prisma.project.findUnique({
       where: { id: projectId },
-      include: { members: true }
+      include: {
+        members: {
+          include: { user: { select: { name: true } } }
+        }
+      }
     });
 
     if (!project) {

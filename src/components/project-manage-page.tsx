@@ -347,6 +347,8 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const activeUploadsRef = useRef(0);
   const MAX_CONCURRENT_UPLOADS = 2;
+  /** 避免 processUpload ↔ processNextInQueue 循环依赖导致 exhaustive-deps 与闭包陈旧 */
+  const processNextInQueueRef = useRef<() => void>(() => {});
 
   // 添加文件到上传队列
   const addFilesToQueue = useCallback((files: File[], isOwner: boolean) => {
@@ -418,7 +420,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
           }
 
           // 处理队列中的下一个文件
-          processNextInQueue();
+          processNextInQueueRef.current();
         },
         (error) => {
           activeUploadsRef.current -= 1;
@@ -427,7 +429,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
               i.id === item.id ? { ...i, status: "error" as const, error } : i
             )
           );
-          processNextInQueue();
+          processNextInQueueRef.current();
         }
       );
 
@@ -454,6 +456,8 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
       data.project.deadline
     );
   }, [data, processUpload, uploadQueue, MAX_CONCURRENT_UPLOADS]);
+
+  processNextInQueueRef.current = processNextInQueue;
 
   // 监听队列变化，自动处理待上传文件
   useEffect(() => {

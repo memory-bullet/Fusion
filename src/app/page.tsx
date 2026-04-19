@@ -50,7 +50,9 @@ function EmptyDraftSpace() {
       </p>
       <div className="mt-4 rounded-lg bg-neutral-50 px-4 py-3 text-left text-xs text-neutral-500 leading-relaxed max-w-xs">
         <p className="font-medium text-neutral-700 mb-1">试试这样说：</p>
-        <p>"帮我在 5 月 1 日前完成开题报告，包括文献综述、研究方法和进度安排"</p>
+        <p>
+          「帮我在 5 月 1 日前完成开题报告，包括文献综述、研究方法和进度安排」
+        </p>
       </div>
     </div>
   );

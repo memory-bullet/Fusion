@@ -224,7 +224,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     const pdfBytes = await pdfDoc.save();
     const filename = `fusion-analytics-${project.id}-${new Date().toISOString().slice(0, 10)}.pdf`;
 
-    return new Response(pdfBytes, {
+    // Buffer 避免 pdf-lib 的 Uint8Array<ArrayBufferLike> 与 BlobPart / BodyInit 在 TS 5 下不兼容
+    return new NextResponse(Buffer.from(pdfBytes), {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename=\"${filename}\"`
