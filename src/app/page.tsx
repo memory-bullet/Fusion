@@ -8,6 +8,7 @@ import { InviteQrScanner } from "@/components/invite-qr-scanner";
 import { PersonalCenter } from "@/components/personal-center";
 import { DraftSpaceCard } from "@/components/draft-space-card";
 import { ProjectCardMenu } from "@/components/project-card-menu";
+import { DateTimeConfirmField } from "@/components/datetime-confirm-field";
 
 type MyProjectRow = {
   id: string;
@@ -164,6 +165,7 @@ export default function HomePage() {
   // 新建项目表单
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [createTitle, setCreateTitle] = useState("");
+  /** YYYY-MM-DDTHH:mm，仅在选择器内点「确定」后写入 */
   const [createDeadline, setCreateDeadline] = useState("");
   const [createOwnerName, setCreateOwnerName] = useState("");
   const [presetInputs, setPresetInputs] = useState<string[]>([""]);
@@ -250,7 +252,10 @@ export default function HomePage() {
     if (!isRegistered) { setError("请先登录或注册。"); return; }
     const t = createTitle.trim();
     if (t.length < 2) { setError("请填写项目名称（至少 2 个字）"); return; }
-    if (!createDeadline) { setError("请选择项目截止时间"); return; }
+    if (!createDeadline) {
+      setError("请在日历中选择截止时间并点击「确定」");
+      return;
+    }
     const on = createOwnerName.trim();
     if (!on) { setError("请填写你在项目中的显示昵称"); return; }
 
@@ -581,12 +586,13 @@ export default function HomePage() {
 
               <div>
                 <label className={ui.label}>截止时间</label>
-                <input
-                  className={ui.field}
-                  type="datetime-local"
+                <DateTimeConfirmField
                   value={createDeadline}
-                  onChange={(e) => setCreateDeadline(e.target.value)}
+                  onChange={setCreateDeadline}
+                  placeholder="点击选择日期与时间"
+                  min={new Date()}
                 />
+                <p className="mt-1.5 text-xs text-neutral-400">在弹出面板中选日期、时间后点击「确定」。</p>
               </div>
 
               <div>
@@ -651,7 +657,7 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={handleCreateProject}
-                disabled={submitting}
+                disabled={submitting || !createDeadline}
                 className={`${ui.btnPrimary} flex-1 flex items-center justify-center gap-2`}
               >
                 {submitting ? "创建中…" : "创建空间"}

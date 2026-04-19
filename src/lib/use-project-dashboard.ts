@@ -39,7 +39,10 @@ export function useProjectDashboard(projectId: string, options?: Options) {
   const pausePolling = options?.pausePolling ?? false;
 
   const fetchDashboard = useCallback(async () => {
-    const res = await fetch(`/api/projects/${projectId}/dashboard`, { cache: "no-store" });
+    const res = await fetch(`/api/projects/${projectId}/dashboard`, {
+      cache: "no-store",
+      credentials: "include"
+    });
     const payload = await res.json();
 
     if (!res.ok) {
@@ -47,8 +50,11 @@ export function useProjectDashboard(projectId: string, options?: Options) {
       return;
     }
 
+    const raw = payload as Record<string, unknown>;
     const normalized: DashboardData = {
-      ...payload,
+      ...(payload as DashboardData),
+      isOwner: typeof raw.isOwner === "boolean" ? raw.isOwner : Boolean(raw.isOwner),
+      members: Array.isArray(raw.members) ? (raw.members as DashboardData["members"]) : [],
       documents: Array.isArray(payload.documents) ? payload.documents.map(normalizeDocument) : [],
       me: payload.me ?? null
     };

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ArrowLeft, BellRing, FileUp, Loader2, RefreshCw, Trash2, Users, Plus, X, UserCog, UserMinus, Share2, CheckCircle, XCircle, Calendar } from "lucide-react";
 import { TopNav } from "@/components/top-nav";
 import { ProjectHero } from "@/components/project-hero";
@@ -19,7 +19,6 @@ import { ProjectAiChatPanel } from "@/components/project-ai-chat-panel";
 import type { TaskStatus } from "@/lib/domain";
 import { DashboardData, DashboardTask } from "@/lib/types";
 import { getDisplayName } from "@/lib/display-name";
-import { uploadFileWithProgress, formatFileSize, type UploadQueueItem } from "@/lib/upload-queue";
 
 function statusTone(task: DashboardTask) {
   if (task.warningLevel === "CRITICAL") return "text-red-500";
@@ -313,17 +312,18 @@ function dedupeLogs(logs: DashboardData["logs"]) {
   });
 }
 
-const ACCEPT_UPLOAD =
-  ".pdf,.docx,.html,.htm,.txt,.md,.markdown,.mdown,.mkd,text/plain,text/markdown,text/x-markdown,text/html,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif";
-
 export function ProjectManagePage({ projectId }: { projectId: string }) {
-  const { data, error, refresh } = useProjectDashboard(projectId);
+  const [editingDeadlineTaskId, setEditingDeadlineTaskId] = useState<string | null>(null);
+  const { data, error, refresh } = useProjectDashboard(projectId, {
+    pausePolling: editingDeadlineTaskId !== null
+  });
   const [view, setView] = useState<"list" | "gantt" | "kanban">("kanban");
   const [digestBusy, setDigestBusy] = useState(false);
   const digestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
+  const [requirementUploadBusy, setRequirementUploadBusy] = useState(false);
   const [dragActive, setDragActive] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const requirementFileInputId = useId();
+  const requirementFileInputRef = useRef<HTMLInputElement | null>(null);
   const [draftTasks, setDraftTasks] = useState<TaskDraftRow[] | null>(null);
   const [draftSourceLabel, setDraftSourceLabel] = useState("");
   const [commitLoading, setCommitLoading] = useState(false);
@@ -332,11 +332,11 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
   const [reallocateLoading, setReallocateLoading] = useState(false);
   const [reallocateError, setReallocateError] = useState<string | null>(null);
   const [taskActionMessage, setTaskActionMessage] = useState<string | null>(null);
-  const [editingDeadlineTaskId, setEditingDeadlineTaskId] = useState<string | null>(null);
   const [deadlineInput, setDeadlineInput] = useState("");
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskWorkload, setNewTaskWorkload] = useState(10);
-  const [newTaskDeadline, setNewTaskDeadline] = useState("");
+  const [newTaskDeadlinePick, setNewTaskDeadlinePick] = useState("");
+  const [newTaskDeadlineCommit, setNewTaskDeadlineCommit] = useState("");
   const [newTaskAssigneeId, setNewTaskAssigneeId] = useState("");
   const [taskSaving, setTaskSaving] = useState(false);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
@@ -345,143 +345,111 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
   const [textRequirement, setTextRequirement] = useState("");
   const [textSubmitting, setTextSubmitting] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const activeUploadsRef = useRef(0);
-  const MAX_CONCURRENT_UPLOADS = 2;
-  /** 避免 processUpload ↔ processNextInQueue 循环依赖导致 exhaustive-deps 与闭包陈旧 */
-  const processNextInQueueRef = useRef<() => void>(() => {});
+  const [taskMetaDrafts, setTaskMetaDrafts] = useState<
+    Record<string, { title: string; workloadPoints: number }>
+  >({});
+  const [draftDeadlinePick, setDraftDeadlinePick] = useState<Record<number, string>>({});
 
-  // 添加文件到上传队列
-  const addFilesToQueue = useCallback((files: File[], isOwner: boolean) => {
-    if (!isOwner) {
-      return;
-    }
-    const newItems: UploadQueueItem[] = Array.from(files).map((file) => ({
-      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      file,
-      progress: 0,
-      status: "pending" as const
-    }));
-    setUploadQueue((prev) => [...prev, ...newItems]);
-  }, []);
-
-  // 处理单个文件上传
-  const processUpload = useCallback(
-    (item: UploadQueueItem, members: { id: string }[], projectDeadline: string) => {
-      const url = `/api/projects/${projectId}/requirement-upload`;
-
-      const xhr = uploadFileWithProgress(
-        item.file,
-        url,
-        (progress) => {
-          setUploadQueue((prev) =>
-            prev.map((i) =>
-              i.id === item.id ? { ...i, progress, status: "uploading" as const } : i
-            )
+  const applySuggestedTasksFromPayload = useCallback(
+    (
+      parsePayload: {
+        suggestedTasks?: Array<{
+          title?: unknown;
+          workloadPoints?: unknown;
+          deadlineOffsetHours?: unknown;
+        }>;
+      },
+      members: { id: string }[],
+      projectDeadline: string,
+      clearTextRequirement?: boolean
+    ) => {
+      const suggested = parsePayload.suggestedTasks;
+      if (Array.isArray(suggested) && suggested.length > 0 && members.length > 0) {
+        const normalized = suggested
+          .map((t) => ({
+            title: String(t.title ?? "").trim(),
+            workloadPoints: Number(t.workloadPoints),
+            deadlineOffsetHours: Number(t.deadlineOffsetHours)
+          }))
+          .filter(
+            (t) =>
+              t.title.length > 0 &&
+              Number.isInteger(t.workloadPoints) &&
+              t.workloadPoints > 0 &&
+              Number.isInteger(t.deadlineOffsetHours) &&
+              t.deadlineOffsetHours >= 1 &&
+              t.deadlineOffsetHours <= 240
           );
-        },
-        async (response: unknown) => {
-          activeUploadsRef.current -= 1;
-          setUploadQueue((prev) =>
-            prev.map((i) =>
-              i.id === item.id ? { ...i, progress: 100, status: "success" as const } : i
-            )
-          );
+        const rows = buildDraftFromSuggested(normalized, members, projectDeadline);
+        setDraftTasks(rows.length > 0 ? rows : null);
+        if (clearTextRequirement) setTextRequirement("");
+      } else {
+        setDraftTasks(null);
+      }
+    },
+    []
+  );
 
-          // 处理响应数据
-          const parsePayload = response as {
+  /** 直接用 fetch 上传，避免 XHR 队列 / flushSync / effect 在任何环境下漏发请求 */
+  const addFilesToQueue = useCallback(
+    async (files: File[], dash: DashboardData | null) => {
+      if (!dash?.isOwner) {
+        setUploadError(
+          "当前账号在项目内不是组长（OWNER），无法上传作业要求。请用创建项目的账号登录，或由组长转让身份。"
+        );
+        return;
+      }
+      if (files.length === 0) {
+        return;
+      }
+      /** 须在 setBusy(true) 之前清空：busy 会卸载 input，卸载后再改 value 无效 */
+      const fileInput = requirementFileInputRef.current;
+      if (fileInput) fileInput.value = "";
+      setUploadError(null);
+      setRequirementUploadBusy(true);
+      const members = (dash.members ?? []).map((m) => ({ id: m.userId }));
+      const projectDeadline = dash.project?.deadline ?? new Date().toISOString();
+
+      try {
+        for (const file of files) {
+          const formData = new FormData();
+          formData.append("file", file);
+          const res = await fetch(`/api/projects/${projectId}/requirement-upload`, {
+            method: "POST",
+            body: formData,
+            credentials: "include"
+          });
+          let parsePayload: {
+            error?: string;
             suggestedTasks?: Array<{
               title?: unknown;
               workloadPoints?: unknown;
               deadlineOffsetHours?: unknown;
             }>;
-          };
-
-          await refresh();
-
-          const suggested = parsePayload.suggestedTasks;
-          if (Array.isArray(suggested) && suggested.length > 0 && members.length > 0) {
-            const normalized = suggested
-              .map((t) => ({
-                title: String(t.title ?? "").trim(),
-                workloadPoints: Number(t.workloadPoints),
-                deadlineOffsetHours: Number(t.deadlineOffsetHours)
-              }))
-              .filter(
-                (t) =>
-                  t.title.length > 0 &&
-                  Number.isInteger(t.workloadPoints) &&
-                  t.workloadPoints > 0 &&
-                  Number.isInteger(t.deadlineOffsetHours) &&
-                  t.deadlineOffsetHours >= 1 &&
-                  t.deadlineOffsetHours <= 240
-              );
-            const rows = buildDraftFromSuggested(normalized, members, projectDeadline);
-            setDraftTasks(rows.length > 0 ? rows : null);
+          } = {};
+          try {
+            parsePayload = await res.json();
+          } catch {
+            parsePayload = {};
           }
-
-          // 处理队列中的下一个文件
-          processNextInQueueRef.current();
-        },
-        (error) => {
-          activeUploadsRef.current -= 1;
-          setUploadQueue((prev) =>
-            prev.map((i) =>
-              i.id === item.id ? { ...i, status: "error" as const, error } : i
-            )
-          );
-          processNextInQueueRef.current();
+          if (!res.ok) {
+            throw new Error(
+              typeof parsePayload.error === "string"
+                ? parsePayload.error
+                : `上传失败 (${res.status})`
+            );
+          }
+          await refresh();
+          applySuggestedTasksFromPayload(parsePayload, members, projectDeadline);
         }
-      );
-
-      setUploadQueue((prev) =>
-        prev.map((i) => (i.id === item.id ? { ...i, xhr, status: "uploading" as const } : i))
-      );
-    },
-    [projectId, refresh]
-  );
-
-  // 处理队列中的下一个待上传文件
-  const processNextInQueue = useCallback(() => {
-    if (!data?.isOwner || !data?.members) return;
-
-    if (activeUploadsRef.current >= MAX_CONCURRENT_UPLOADS) return;
-
-    const pending = uploadQueue.find((item) => item.status === "pending");
-    if (!pending) return;
-
-    activeUploadsRef.current += 1;
-    processUpload(
-      pending,
-      data.members.map((member) => ({ id: member.userId })),
-      data.project.deadline
-    );
-  }, [data, processUpload, uploadQueue, MAX_CONCURRENT_UPLOADS]);
-
-  processNextInQueueRef.current = processNextInQueue;
-
-  // 监听队列变化，自动处理待上传文件
-  useEffect(() => {
-    processNextInQueue();
-  }, [processNextInQueue]);
-
-  // 取消单个上传
-  const cancelUpload = useCallback((id: string) => {
-    setUploadQueue((prev) => {
-      const item = prev.find((i) => i.id === id);
-      if (item?.xhr && item.status === "uploading") {
-        item.xhr.abort();
-        activeUploadsRef.current -= 1;
+      } catch (e) {
+        setUploadError(e instanceof Error ? e.message : "上传失败");
+      } finally {
+        setRequirementUploadBusy(false);
       }
-      return prev.filter((i) => i.id !== id);
-    });
-  }, []);
-
-  // 清除已完成或失败的上传
-  const clearCompletedUploads = useCallback(() => {
-    setUploadQueue((prev) =>
-      prev.filter((item) => item.status === "pending" || item.status === "uploading")
-    );
-  }, []);
+    },
+    [projectId, refresh, applySuggestedTasksFromPayload]
+  );
 
   // 提交文本要求
   const runTextSubmit = useCallback(
@@ -503,7 +471,8 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
 
         const res = await fetch(`/api/projects/${projectId}/requirement-upload`, {
           method: "POST",
-          body: formData
+          body: formData,
+          credentials: "include"
         });
         const parsePayload = await res.json();
         if (!res.ok) {
@@ -512,36 +481,14 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
 
         await refresh();
 
-        const suggested = parsePayload.suggestedTasks;
-        if (Array.isArray(suggested) && suggested.length > 0 && members.length > 0) {
-          const normalized = suggested
-            .map((t: { title?: unknown; workloadPoints?: unknown; deadlineOffsetHours?: unknown }) => ({
-              title: String(t.title ?? "").trim(),
-              workloadPoints: Number(t.workloadPoints),
-              deadlineOffsetHours: Number(t.deadlineOffsetHours)
-            }))
-            .filter(
-              (t) =>
-                t.title.length > 0 &&
-                Number.isInteger(t.workloadPoints) &&
-                t.workloadPoints > 0 &&
-                Number.isInteger(t.deadlineOffsetHours) &&
-                t.deadlineOffsetHours >= 1 &&
-                t.deadlineOffsetHours <= 240
-            );
-          const rows = buildDraftFromSuggested(normalized, members, projectDeadline);
-          setDraftTasks(rows.length > 0 ? rows : null);
-          setTextRequirement(""); // 清空输入框
-        } else {
-          setDraftTasks(null);
-        }
+        applySuggestedTasksFromPayload(parsePayload, members, projectDeadline, true);
       } catch (e) {
         setUploadError(e instanceof Error ? e.message : "提交处理失败");
       } finally {
         setTextSubmitting(false);
       }
     },
-    [projectId, refresh]
+    [projectId, refresh, applySuggestedTasksFromPayload]
   );
 
   const commitDraft = useCallback(async () => {
@@ -650,6 +597,60 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
     [refresh]
   );
 
+  const saveTaskMeta = useCallback(
+    async (task: DashboardTask) => {
+      const d = taskMetaDrafts[task.id];
+      if (!d) return;
+      const titleNorm = normalizeTaskTitle(task.title);
+      const nextTitle = d.title.trim();
+      const nextPts = d.workloadPoints;
+      if (nextTitle === titleNorm && nextPts === task.workloadPoints) {
+        setTaskActionMessage("名称与工作量未修改");
+        return;
+      }
+      if (!nextTitle) {
+        setTaskActionMessage("任务名称不能为空");
+        return;
+      }
+      setTaskActionMessage(null);
+      try {
+        if (nextTitle !== titleNorm) {
+          const res = await fetch(`/api/tasks/${task.id}/rename`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title: nextTitle })
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(typeof payload.error === "string" ? payload.error : "更新名称失败");
+          }
+        }
+        if (nextPts !== task.workloadPoints) {
+          const res = await fetch(`/api/tasks/${task.id}/workload`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ workloadPoints: nextPts })
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(typeof payload.error === "string" ? payload.error : "更新工作量失败");
+          }
+        }
+        setTaskMetaDrafts((prev) => {
+          const next = { ...prev };
+          delete next[task.id];
+          return next;
+        });
+        setTaskActionMessage("已保存任务修改");
+        await refresh();
+        scheduleProgressDigest();
+      } catch (e) {
+        setTaskActionMessage(e instanceof Error ? e.message : "保存失败");
+      }
+    },
+    [taskMetaDrafts, refresh, scheduleProgressDigest]
+  );
+
   const claimTask = useCallback(
     async (taskId: string) => {
       setTaskActionMessage(null);
@@ -697,6 +698,14 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
       setTaskActionMessage("请先填写任务名称");
       return;
     }
+    if (newTaskDeadlinePick !== newTaskDeadlineCommit) {
+      setTaskActionMessage("请先点击「确认日期」确认截止日期");
+      return;
+    }
+    if (!newTaskDeadlineCommit) {
+      setTaskActionMessage("请选择并确认截止日期");
+      return;
+    }
 
     setTaskSaving(true);
     setTaskActionMessage(null);
@@ -710,7 +719,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
             {
               title,
               workloadPoints: Math.max(1, newTaskWorkload),
-              deadline: newTaskDeadline,
+              deadline: newTaskDeadlineCommit,
               assigneeId: newTaskAssigneeId || undefined
             }
           ]
@@ -723,6 +732,9 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
 
       setNewTaskTitle("");
       setNewTaskWorkload(10);
+      const nextDeadline = formatDateInput(new Date(data.project.deadline));
+      setNewTaskDeadlinePick(nextDeadline);
+      setNewTaskDeadlineCommit(nextDeadline);
       setTaskActionMessage("已新增任务");
       await refresh();
       scheduleProgressDigest();
@@ -731,7 +743,18 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
     } finally {
       setTaskSaving(false);
     }
-  }, [data?.isOwner, newTaskAssigneeId, newTaskDeadline, newTaskTitle, newTaskWorkload, projectId, refresh, scheduleProgressDigest]);
+  }, [
+    data?.isOwner,
+    data?.project.deadline,
+    newTaskAssigneeId,
+    newTaskDeadlineCommit,
+    newTaskDeadlinePick,
+    newTaskTitle,
+    newTaskWorkload,
+    projectId,
+    refresh,
+    scheduleProgressDigest
+  ]);
 
   const deleteTask = useCallback(
     async (taskId: string, title: string) => {
@@ -788,9 +811,10 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     if (!data) return;
-    if (newTaskDeadline) return;
-    setNewTaskDeadline(formatDateInput(new Date(data.project.deadline)));
-  }, [data, newTaskDeadline]);
+    const d = formatDateInput(new Date(data.project.deadline));
+    setNewTaskDeadlinePick(d);
+    setNewTaskDeadlineCommit(d);
+  }, [data?.project?.deadline]);
 
   useEffect(() => {
     if (!data) return;
@@ -851,7 +875,9 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
 
   const ganttRange = buildGanttRange(data.project.createdAt, data.project.deadline);
   const visibleLogs = dedupeLogs(data.logs).slice(0, 6);
-  const busy = uploadQueue.some((item) => item.status === "uploading") || textSubmitting;
+  const busy = requirementUploadBusy || textSubmitting;
+  /** 用 label 触发文件框；勿在隐藏 input 上用 disabled + ref.click()（部分浏览器会静默不弹出选择框） */
+  const canPickRequirementFile = data.isOwner && !busy;
   const canCommitDraft = data.isOwner && Boolean(draftTasks?.length) && !commitLoading && !busy;
   const selectedTask = orderedTasks.find((task) => task.id === reallocateTaskId) ?? null;
 
@@ -982,70 +1008,92 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
 
           <div className="grid gap-4 lg:grid-cols-[1.05fr_1fr]">
             {inputMode === "file" ? (
-              <>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  className="sr-only"
-                  accept={ACCEPT_UPLOAD}
-                  disabled={busy || !data.isOwner}
-                  onChange={(e) => {
-                    const files = e.target.files;
-                    e.target.value = "";
-                    if (files && files.length > 0) {
-                      addFilesToQueue(Array.from(files), data.isOwner);
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  disabled={busy || !data.isOwner}
-                  onClick={() => fileInputRef.current?.click()}
-                  onDragEnter={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (!busy && data.isOwner) setDragActive(true);
-                  }}
-                  onDragLeave={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setDragActive(false);
-                  }}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setDragActive(false);
-                    if (busy || !data.isOwner) return;
-                    const files = e.dataTransfer.files;
-                    if (files && files.length > 0) {
-                      addFilesToQueue(Array.from(files), data.isOwner);
-                    }
-                  }}
-                  className={`rounded-[28px] border border-dashed bg-white p-10 text-center transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-60 ${
-                    dragActive ? "border-blue-400 bg-blue-50/40" : "border-slate-200"
-                  }`}
-                >
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-line bg-slate-50">
-                    {busy ? (
-                      <Loader2 className="h-7 w-7 animate-spin text-blue-500" />
+              <div
+                className="min-w-0"
+                onDragEnter={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (!busy && data.isOwner) setDragActive(true);
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDragActive(false);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDragActive(false);
+                  if (busy || !data.isOwner) return;
+                  const files = e.dataTransfer.files;
+                  if (files && files.length > 0) {
+                    void addFilesToQueue(Array.from(files), data);
+                  }
+                }}
+              >
+                {canPickRequirementFile ? (
+                  <>
+                    <input
+                      ref={requirementFileInputRef}
+                      id={requirementFileInputId}
+                      type="file"
+                      multiple
+                      className="sr-only"
+                      title="选择作业要求文件"
+                      accept="*/*"
+                      onChange={(e) => {
+                        const input = e.currentTarget;
+                        const picked = input.files?.length ? Array.from(input.files) : [];
+                        if (picked.length === 0) return;
+                        void addFilesToQueue(picked, data);
+                      }}
+                    />
+                    <label
+                      htmlFor={requirementFileInputId}
+                      className={`block w-full cursor-pointer rounded-[28px] border border-dashed bg-white p-10 text-center transition focus-within:outline-none focus-within:ring-2 focus-within:ring-blue-400 ${
+                        dragActive ? "border-blue-400 bg-blue-50/40" : "border-slate-200"
+                      }`}
+                    >
+                      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-line bg-slate-50">
+                        <FileUp className="h-7 w-7 text-slate-500" />
+                      </div>
+                      <div className="mt-6 text-3xl font-semibold tracking-tight">上传作业要求文档</div>
+                      <p className="mt-3 text-sm text-muted">
+                        支持 PDF、Word（.docx）、Markdown、HTML、纯文本与常见图片（含 HEIC）；点击或拖拽到此处，将自动提取文本并由 AI
+                        解析（含时间节点与建议任务）。
+                      </p>
+                    </label>
+                  </>
+                ) : (
+                  <div
+                    className={`w-full rounded-[28px] border border-dashed bg-white p-10 text-center ${
+                      busy ? "" : "cursor-not-allowed opacity-60"
+                    } ${dragActive ? "border-blue-400 bg-blue-50/40" : "border-slate-200"}`}
+                  >
+                    <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-line bg-slate-50">
+                      {busy ? (
+                        <Loader2 className="h-7 w-7 animate-spin text-blue-500" />
+                      ) : (
+                        <FileUp className="h-7 w-7 text-slate-500" />
+                      )}
+                    </div>
+                    <div className="mt-6 text-3xl font-semibold tracking-tight">上传作业要求文档</div>
+                    <p className="mt-3 text-sm text-muted">
+                      支持 PDF、Word（.docx）、Markdown、HTML、纯文本与常见图片（含 HEIC）；点击或拖拽到此处，将自动提取文本并由 AI
+                      解析（含时间节点与建议任务）。
+                    </p>
+                    {!data.isOwner ? (
+                      <p className="mt-4 text-sm font-medium text-amber-700">仅组长可在此上传并生成任务草稿。</p>
                     ) : (
-                      <FileUp className="h-7 w-7 text-slate-500" />
+                      <p className="mt-4 text-sm text-muted">正在处理上一批文件，请稍候…</p>
                     )}
                   </div>
-                  <div className="mt-6 text-3xl font-semibold tracking-tight">上传作业要求文档</div>
-                  <p className="mt-3 text-sm text-muted">
-                    支持 PDF、Word（.docx）、Markdown、HTML、纯文本与常见图片（含 HEIC）；点击或拖拽到此处，将自动提取文本并由 AI 解析（含时间节点与建议任务）。
-                  </p>
-                  {!data.isOwner ? (
-                    <p className="mt-4 text-sm font-medium text-amber-700">仅组长可在此上传并生成任务草稿。</p>
-                  ) : null}
-                </button>
-              </>
+                )}
+              </div>
             ) : (
               <div className="rounded-[28px] border border-slate-200 bg-white p-6">
                 <div className="mb-4 text-xl font-semibold tracking-tight">粘贴作业要求文本</div>
@@ -1204,14 +1252,36 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                         />
                       </td>
                       <td className="px-3 py-2 align-middle">
-                        <input
-                          type="date"
-                          min={new Date().toISOString().slice(0, 10)}
-                          max={new Date(data.project.deadline).toISOString().slice(0, 10)}
-                          className="w-full rounded-lg border border-line bg-white px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-200"
-                          value={row.deadline}
-                          onChange={(e) => updateDraftRow(index, { deadline: e.target.value })}
-                        />
+                        <div className="flex flex-col gap-1.5">
+                          <input
+                            type="date"
+                            min={new Date().toISOString().slice(0, 10)}
+                            max={new Date(data.project.deadline).toISOString().slice(0, 10)}
+                            className="w-full rounded-lg border border-line bg-white px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-200"
+                            value={draftDeadlinePick[index] ?? row.deadline}
+                            onChange={(e) =>
+                              setDraftDeadlinePick((prev) => ({ ...prev, [index]: e.target.value }))
+                            }
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = draftDeadlinePick[index] ?? row.deadline;
+                              updateDraftRow(index, { deadline: next });
+                              setDraftDeadlinePick((prev) => {
+                                const n = { ...prev };
+                                delete n[index];
+                                return n;
+                              });
+                            }}
+                            className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50"
+                          >
+                            确认日期
+                          </button>
+                          {draftDeadlinePick[index] != null && draftDeadlinePick[index] !== row.deadline ? (
+                            <span className="text-[11px] text-amber-700">已选日期未确认</span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-3 py-2 align-middle">
                         <select
@@ -1304,7 +1374,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                 />
               </div>
             ) : null}
-            <div className="grid grid-cols-[1.05fr_1.55fr_0.6fr_0.8fr_0.9fr_0.7fr_88px] items-center gap-6 border-b border-line pb-5 text-center text-[22px] font-semibold tracking-tight text-slate-500">
+            <div className="grid grid-cols-[1.05fr_1.55fr_0.6fr_0.8fr_0.9fr_0.7fr_152px] items-center gap-6 border-b border-line pb-5 text-center text-[22px] font-semibold tracking-tight text-slate-500">
               <div className="flex items-center justify-center">任务名称</div>
               <div className="flex items-center justify-center">具体内容</div>
               <div className="flex items-center justify-center">工作量</div>
@@ -1314,7 +1384,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
               <div className="flex items-center justify-center">操作</div>
             </div>
             {data.isOwner ? (
-              <div className="grid grid-cols-[1.05fr_1.55fr_0.6fr_0.8fr_0.9fr_0.7fr_88px] items-center gap-6 border-b border-line bg-slate-50/70 py-5 text-center">
+              <div className="grid grid-cols-[1.05fr_1.55fr_0.6fr_0.8fr_0.9fr_0.7fr_152px] items-center gap-6 border-b border-line bg-slate-50/70 py-5 text-center">
                 <div className="px-2">
                   <input
                     value={newTaskTitle}
@@ -1348,21 +1418,33 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                     ))}
                   </select>
                 </div>
-                <div className="px-2">
+                <div className="flex flex-col items-stretch gap-2 px-2">
                   <input
                     type="date"
                     min={new Date().toISOString().slice(0, 10)}
                     max={new Date(data.project.deadline).toISOString().slice(0, 10)}
-                    value={newTaskDeadline}
-                    onChange={(e) => setNewTaskDeadline(e.target.value)}
+                    value={newTaskDeadlinePick}
+                    onChange={(e) => setNewTaskDeadlinePick(e.target.value)}
                     className="w-full rounded-lg border border-line bg-white px-2 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-200"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setNewTaskDeadlineCommit(newTaskDeadlinePick)}
+                    className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50"
+                  >
+                    确认日期
+                  </button>
+                  {newTaskDeadlinePick !== newTaskDeadlineCommit ? (
+                    <span className="text-[11px] leading-tight text-amber-700">请先确认日期后再新增</span>
+                  ) : null}
                 </div>
                 <div className="flex justify-center px-2">
                   <button
                     type="button"
                     onClick={() => void createListTask()}
-                    disabled={taskSaving || !newTaskDeadline}
+                    disabled={
+                      taskSaving || !newTaskDeadlineCommit || newTaskDeadlinePick !== newTaskDeadlineCommit
+                    }
                     className="inline-flex items-center gap-1 rounded-full bg-slate-900 px-3 py-2 text-xs font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {taskSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
@@ -1372,10 +1454,33 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
               </div>
             ) : null}
             <div>
-              {orderedTasks.map((task) => (
-                <div key={task.id} className="grid grid-cols-[1.05fr_1.55fr_0.6fr_0.8fr_0.9fr_0.7fr_88px] items-center gap-6 border-b border-line py-7 text-center">
-                  <div className={`flex flex-col items-center justify-center text-[18px] font-semibold ${statusTone(task)}`}>
-                    <div>{normalizeTaskTitle(task.title)}</div>
+              {orderedTasks.map((task) => {
+                const metaDraft = taskMetaDrafts[task.id];
+                const metaDirty =
+                  !!metaDraft &&
+                  (metaDraft.title.trim() !== normalizeTaskTitle(task.title) ||
+                    metaDraft.workloadPoints !== task.workloadPoints);
+                return (
+                  <div key={task.id} className="grid grid-cols-[1.05fr_1.55fr_0.6fr_0.8fr_0.9fr_0.7fr_152px] items-center gap-6 border-b border-line py-7 text-center">
+                  <div className={`flex flex-col items-center justify-center gap-2 px-2 text-[18px] font-semibold ${statusTone(task)}`}>
+                    {data.isOwner ? (
+                      <input
+                        aria-label="任务名称"
+                        className={`w-full max-w-[280px] rounded-lg border border-line bg-white px-3 py-2 text-center text-[16px] font-semibold outline-none focus:ring-2 focus:ring-slate-200 ${statusTone(task)}`}
+                        value={metaDraft?.title ?? normalizeTaskTitle(task.title)}
+                        onChange={(e) =>
+                          setTaskMetaDrafts((prev) => ({
+                            ...prev,
+                            [task.id]: {
+                              title: e.target.value,
+                              workloadPoints: prev[task.id]?.workloadPoints ?? task.workloadPoints
+                            }
+                          }))
+                        }
+                      />
+                    ) : (
+                      <div>{normalizeTaskTitle(task.title)}</div>
+                    )}
                     {task.sourceLabel ? (
                       <div className="mt-2">
                         <span className="inline-flex rounded-full border border-sky-100 bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700">
@@ -1408,10 +1513,29 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                     </span>
                     <span className="text-xs text-muted">相对权重，可结合上方彩条查看</span>
                   </div>
-                  <div className="flex items-center justify-center">
-                    <span className="rounded-full bg-slate-100 px-4 py-2 text-[15px] font-medium text-slate-600">
-                      {task.workloadPoints} 点
-                    </span>
+                  <div className="flex items-center justify-center px-2">
+                    {data.isOwner ? (
+                      <input
+                        aria-label="工作量（点）"
+                        type="number"
+                        min={1}
+                        className="w-full max-w-[100px] rounded-lg border border-line bg-white px-3 py-2 text-center text-[15px] font-medium outline-none focus:ring-2 focus:ring-slate-200"
+                        value={metaDraft?.workloadPoints ?? task.workloadPoints}
+                        onChange={(e) =>
+                          setTaskMetaDrafts((prev) => ({
+                            ...prev,
+                            [task.id]: {
+                              title: prev[task.id]?.title ?? normalizeTaskTitle(task.title),
+                              workloadPoints: Math.max(1, Number(e.target.value) || 1)
+                            }
+                          }))
+                        }
+                      />
+                    ) : (
+                      <span className="rounded-full bg-slate-100 px-4 py-2 text-[15px] font-medium text-slate-600">
+                        {task.workloadPoints} 点
+                      </span>
+                    )}
                   </div>
                   <div className="flex flex-col items-center justify-center gap-2 px-1">
                     <span className="rounded-full bg-slate-100 px-3 py-1.5 text-[12px] font-medium text-slate-600">
@@ -1535,16 +1659,16 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                               void updateTaskDeadline(task.id, new Date(deadlineInput).toISOString());
                             }
                           }}
-                          className="rounded-lg bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-800"
+                          className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
                         >
-                          ??
+                          确认
                         </button>
                         <button
                           type="button"
                           onClick={() => setEditingDeadlineTaskId(null)}
-                          className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
                         >
-                          ??
+                          取消
                         </button>
                       </div>
                     ) : (
@@ -1571,21 +1695,32 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                       </button>
                     )}
                   </div>
-                  <div className="flex items-center justify-center">
+                  <div className="flex flex-col items-center justify-center gap-2 px-1">
                     {data.isOwner ? (
-                      <button
-                        type="button"
-                        onClick={() => void deleteTask(task.id, normalizeTaskTitle(task.title))}
-                        disabled={deletingTaskId === task.id}
-                        className="inline-flex items-center justify-center rounded-full border border-red-200 p-2 text-red-500 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                        aria-label="删除任务"
-                      >
-                        {deletingTaskId === task.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          disabled={!metaDirty}
+                          onClick={() => void saveTaskMeta(task)}
+                          className="inline-flex min-w-[72px] items-center justify-center rounded-full border border-slate-900 bg-white px-3 py-1.5 text-xs font-medium text-slate-900 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          保存
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void deleteTask(task.id, normalizeTaskTitle(task.title))}
+                          disabled={deletingTaskId === task.id}
+                          className="inline-flex items-center justify-center rounded-full border border-red-200 p-2 text-red-500 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          aria-label="删除任务"
+                        >
+                          {deletingTaskId === task.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                        </button>
+                      </>
                     ) : null}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </section>
         ) : view === "gantt" ? (
