@@ -194,44 +194,46 @@ export function ProjectDashboard({ projectId }: Props) {
           isOwner={data.isOwner}
         />
 
-        {/* S5: 我的任务列表 */}
-        {data.me && myTasks.length > 0 ? (
-          <section className="mx-auto max-w-3xl">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <LayoutGrid className="h-4 w-4 text-slate-400" />
-                <span className="text-sm font-semibold text-slate-600">我的任务</span>
-                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
-                  {myTasks.length}
-                </span>
+        <div className="mx-auto max-w-6xl space-y-5">
+          {/* S5: 我的任务列表 */}
+          {data.me && myTasks.length > 0 ? (
+            <section>
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <LayoutGrid className="h-4 w-4 text-slate-400" />
+                  <span className="text-sm font-semibold text-slate-600">我的任务</span>
+                  <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
+                    {myTasks.length}
+                  </span>
+                </div>
+                <Link
+                  href={`/project/${projectId}/manage`}
+                  className="text-xs text-slate-400 underline underline-offset-2 hover:text-slate-600"
+                >
+                  查看全部 →
+                </Link>
               </div>
-              <Link
-                href={`/project/${projectId}/manage`}
-                className="text-xs text-slate-400 underline underline-offset-2 hover:text-slate-600"
-              >
-                查看全部 →
-              </Link>
-            </div>
-            <div className="space-y-2">
-              {myTasks.slice(0, 5).map((task) => (
-                <TaskItemRow
-                  key={task.id}
-                  task={task}
-                  isOwner={data.isOwner}
-                  currentUserId={data.me?.id}
-                  onDelete={handleDeleteTask}
-                  onClick={setSelectedTask}
-                />
-              ))}
-            </div>
-          </section>
-        ) : null}
+              <div className="space-y-2">
+                {myTasks.slice(0, 5).map((task) => (
+                  <TaskItemRow
+                    key={task.id}
+                    task={task}
+                    isOwner={data.isOwner}
+                    currentUserId={data.me?.id}
+                    onDelete={handleDeleteTask}
+                    onClick={setSelectedTask}
+                  />
+                ))}
+              </div>
+            </section>
+          ) : null}
 
-        <div className="mx-auto max-w-3xl space-y-5">
-          <section className="line-card rounded-[28px] p-6">
+          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
+            <div className="space-y-5">
+              <section className="line-card rounded-[28px] p-6">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-lg font-bold text-slate-900">一、项目概述</div>
+                <div className="text-lg font-bold text-slate-900">项目概述</div>
               </div>
               <Users2 className="h-5 w-5 text-slate-400" />
             </div>
@@ -292,224 +294,226 @@ export function ProjectDashboard({ projectId }: Props) {
             >
               进入项目管理
             </Link>
-          </section>
+              </section>
 
-          <section className="line-card rounded-[28px] p-6">
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <div>
-                <div className="text-lg font-bold text-slate-900">二、现有成员</div>
-                <p className="mt-2 text-sm leading-relaxed text-slate-500">
-                  点击成员进入贡献统计页，查看该成员六维雷达、与团队均分对比及实时趋势（数据随任务与日志刷新）。
-                </p>
-              </div>
-              <Link
-                href={`/project/${projectId}/analytics`}
-                className="shrink-0 rounded-full border border-slate-900 px-3 py-2 text-xs font-medium text-slate-900 transition hover:bg-slate-900 hover:text-white"
-              >
-                全员看板
-              </Link>
-            </div>
-            <div className="space-y-3">
-              {contributionRanking.map((member, index) => {
-                // 仅自己一人时显示"创建者"，有其他成员加入后改为"组长"
-                const teamSize = contributionRanking.filter((m) => m.joinedStatus === "ACTIVATED").length;
-                const label = member.role === "OWNER"
-                  ? (teamSize <= 1 ? "创建者" : "组长")
-                  : "成员";
-                const displayName = getDisplayName(member);
-                const initial = (displayName || "?").slice(0, 1);
-                const ongoing = data.tasks ? memberWorkloadPoints(data.tasks, member.id) : 0;
-                return (
+              <section className="line-card rounded-[28px] p-6">
+                <div className="mb-4 flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-lg font-bold text-slate-900">现有成员</div>
+                    <p className="mt-1 text-sm text-slate-500">
+                      点击成员查看贡献与进展。
+                    </p>
+                  </div>
                   <Link
-                    key={member.id}
-                    href={`/project/${projectId}/analytics?member=${encodeURIComponent(member.id)}`}
-                    className="block rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-3 transition hover:border-slate-900 hover:bg-white hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]"
+                    href={`/project/${projectId}/analytics`}
+                    className="shrink-0 rounded-full border border-slate-900 px-3 py-2 text-xs font-medium text-slate-900 transition hover:bg-slate-900 hover:text-white"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white">
-                        {initial}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                          <span className="text-sm font-semibold text-slate-900">
-                            {index + 1}. {displayName}
-                          </span>
-                          <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                            {label}
-                          </span>
-                        </div>
-                        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">
-                          <span title="当前进行中任务工作量点数">{ongoing} 点进行中</span>
-                          <span>信用 {member.creditScore}</span>
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <div className="text-lg font-semibold tabular-nums text-slate-900">{member.accumulatedPoints}</div>
-                        <div className="text-[11px] font-medium text-blue-700">贡献度 →</div>
-                      </div>
-                    </div>
+                    全员看板
                   </Link>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="line-card rounded-[28px] p-6">
-            <div className="mb-4 space-y-2">
-              <div className="text-lg font-bold text-slate-900">三、作业文件</div>
-              <p className="text-sm leading-relaxed text-slate-500">
-                支持 Word、PDF、Markdown、图片、音视频、常见建模与压缩包等，可一次选择多个文件批量上传。组员上传后需经过组长审核，通过后才会计入积分；若被打回，需要修改后重新提交。系统会按文件内容去重，避免重复上传刷分。
-              </p>
-            </div>
-
-            <div className="mb-4 rounded-[22px] border border-dashed border-slate-300 bg-slate-50 p-4">
-              <label className="block text-xs font-medium text-slate-600">上传前说明（会保存到该文件条目）</label>
-              <textarea
-                value={uploadNote}
-                onChange={(e) => setUploadNote(e.target.value)}
-                disabled={!canEdit || uploading}
-                rows={2}
-                maxLength={8000}
-                placeholder="简要描述作业内容、版本、分工等…"
-                className="mt-2 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400 disabled:opacity-50"
-              />
-              {uploadFeedback ? (
-                <p className="mt-2 text-xs text-slate-500">{uploadFeedback}</p>
-              ) : null}
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                accept=".pdf,.doc,.docx,.md,.txt,.ppt,.pptx,.xls,.xlsx,.csv,.json,.zip,.rar,.7z,.png,.jpg,.jpeg,.gif,.webp,.svg,.bmp,.mp4,.webm,.mov,.mkv,.mp3,.wav,.m4a,.aac,.ogg,.flac,.glb,.gltf,.obj,.fbx,.stl,image/*,video/*,audio/*"
-                onChange={(e) => void onUploadPicked(e.target.files)}
-              />
-              <div className="mt-3">
-                <button
-                  type="button"
-                  disabled={!canEdit || uploading}
-                  onClick={() => fileInputRef.current?.click()}
-                  className="inline-flex items-center gap-2 rounded-full border border-slate-900 bg-slate-900 px-4 py-2 text-sm font-medium text-white transition enabled:hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                  {uploading ? "批量上传中…" : "选择文件批量上传"}
-                </button>
-              </div>
-              <p className="mt-2 text-[11px] text-slate-400">支持一次选择多个文件；单文件上限约 80MB。不支持的类型将被拒绝。</p>
+                </div>
+                <div className="space-y-3">
+                  {contributionRanking.map((member, index) => {
+                    // 仅自己一人时显示"创建者"，有其他成员加入后改为"组长"
+                    const teamSize = contributionRanking.filter((m) => m.joinedStatus === "ACTIVATED").length;
+                    const label = member.role === "OWNER"
+                      ? (teamSize <= 1 ? "创建者" : "组长")
+                      : "成员";
+                    const displayName = getDisplayName(member);
+                    const initial = (displayName || "?").slice(0, 1);
+                    const ongoing = data.tasks ? memberWorkloadPoints(data.tasks, member.id) : 0;
+                    return (
+                      <Link
+                        key={member.id}
+                        href={`/project/${projectId}/analytics?member=${encodeURIComponent(member.id)}`}
+                        className="block rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-3 transition hover:border-slate-900 hover:bg-white hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white">
+                            {initial}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                              <span className="text-sm font-semibold text-slate-900">
+                                {index + 1}. {displayName}
+                              </span>
+                              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                                {label}
+                              </span>
+                            </div>
+                            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">
+                              <span title="当前进行中任务工作量点数">{ongoing} 点进行中</span>
+                              <span>信用 {member.creditScore}</span>
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <div className="text-lg font-semibold tabular-nums text-slate-900">{member.accumulatedPoints}</div>
+                            <div className="text-[11px] font-medium text-blue-700">贡献度 →</div>
+                          </div>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </section>
             </div>
 
-            <div className="space-y-3">
-              {docs.length === 0 ? (
-                <p className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-                  暂无作业文件。登录成员账号后可上传；旧版自动生成的「项目概述 / 任务拆解 / 成员协作记录」已从本列表隐藏。
+            <section className="line-card rounded-[28px] p-6">
+              <div className="mb-3 space-y-1">
+                <div className="text-lg font-bold text-slate-900">作业文件</div>
+                <p className="text-xs text-slate-400">
+                  支持 Word、PDF、Markdown、图片、音视频等常见格式。
                 </p>
-              ) : null}
-              {docs.map((doc) => {
-                const fileUrl = doc.storageKey
-                  ? `/api/projects/${projectId}/documents/${doc.id}/file`
-                  : null;
-                const canDeleteDoc = canReviewDocuments || doc.author.id === data.me?.id;
-                const showDeleteDoc = canReviewDocuments || doc.author.id === data.me?.id;
-                return (
-                  <div key={doc.id} className="rounded-[22px] border border-slate-200 bg-white p-4">
-                    <div className="flex gap-3">
-                      <DocGlyph storageKey={doc.storageKey} mimeType={doc.mimeType} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <div className="text-base font-semibold text-slate-900">{doc.title}</div>
-                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                            doc.reviewStatus === "APPROVED"
-                              ? "bg-emerald-50 text-emerald-600"
-                              : doc.reviewStatus === "REJECTED"
-                                ? "bg-red-50 text-red-600"
-                                : "bg-amber-50 text-amber-600"
-                          }`}>
-                            {doc.reviewStatus === "APPROVED"
-                              ? "已通过"
-                              : doc.reviewStatus === "REJECTED"
-                                ? "已打回"
-                                : "待审核"}
-                          </span>
-                          {doc.pointsAwarded > 0 ? (
-                            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-600">
-                              +{doc.pointsAwarded} 分
+              </div>
+
+              <div className="mb-3 rounded-[22px] border border-dashed border-slate-300 bg-slate-50 p-4">
+                <label className="block text-xs font-medium text-slate-600">文件说明</label>
+                <textarea
+                  value={uploadNote}
+                  onChange={(e) => setUploadNote(e.target.value)}
+                  disabled={!canEdit || uploading}
+                  rows={2}
+                  maxLength={8000}
+                  placeholder="简要说明文件内容"
+                  className="mt-2 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400 disabled:opacity-50"
+                />
+                {uploadFeedback ? (
+                  <p className="mt-2 text-xs text-slate-500">{uploadFeedback}</p>
+                ) : null}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  accept=".pdf,.doc,.docx,.md,.txt,.ppt,.pptx,.xls,.xlsx,.csv,.json,.zip,.rar,.7z,.png,.jpg,.jpeg,.gif,.webp,.svg,.bmp,.mp4,.webm,.mov,.mkv,.mp3,.wav,.m4a,.aac,.ogg,.flac,.glb,.gltf,.obj,.fbx,.stl,image/*,video/*,audio/*"
+                  onChange={(e) => void onUploadPicked(e.target.files)}
+                />
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    disabled={!canEdit || uploading}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="inline-flex items-center gap-2 rounded-full border border-slate-900 bg-slate-900 px-4 py-2 text-sm font-medium text-white transition enabled:hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    {uploading ? "上传中…" : "选择文件上传"}
+                  </button>
+                </div>
+                <p className="mt-1.5 text-[11px] text-slate-400">支持多文件上传</p>
+              </div>
+
+              <div className="space-y-3">
+                {docs.length === 0 ? (
+                  <p className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                    暂无作业文件，登录后可上传。
+                  </p>
+                ) : null}
+                {docs.map((doc) => {
+                  const fileUrl = doc.storageKey
+                    ? `/api/projects/${projectId}/documents/${doc.id}/file`
+                    : null;
+                  const canDeleteDoc = canReviewDocuments || doc.author.id === data.me?.id;
+                  const showDeleteDoc = canReviewDocuments || doc.author.id === data.me?.id;
+                  return (
+                    <div key={doc.id} className="rounded-[22px] border border-slate-200 bg-white p-4">
+                      <div className="flex gap-3">
+                        <DocGlyph storageKey={doc.storageKey} mimeType={doc.mimeType} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="text-base font-semibold text-slate-900">{doc.title}</div>
+                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                              doc.reviewStatus === "APPROVED"
+                                ? "bg-emerald-50 text-emerald-600"
+                                : doc.reviewStatus === "REJECTED"
+                                  ? "bg-red-50 text-red-600"
+                                  : "bg-amber-50 text-amber-600"
+                            }`}>
+                              {doc.reviewStatus === "APPROVED"
+                                ? "已通过"
+                                : doc.reviewStatus === "REJECTED"
+                                  ? "已打回"
+                                  : "待审核"}
                             </span>
+                            {doc.pointsAwarded > 0 ? (
+                              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-600">
+                                +{doc.pointsAwarded} 分
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="mt-0.5 text-xs text-slate-500">
+                            {doc.storageKey
+                              ? `${doc.originalFileName ?? "文件"}${doc.fileSize ? ` · ${formatBytes(doc.fileSize)}` : ""}`
+                              : "历史协作文稿（无附件）"}
+                          </div>
+                          {doc.description ? (
+                            <div className="mt-1 text-xs text-slate-600">{doc.description}</div>
+                          ) : null}
+                          <div className="mt-1 text-xs text-slate-400">作者：{doc.author.name}</div>
+                          {doc.reviewStatus === "REJECTED" && doc.reviewComment ? (
+                            <div className="mt-2 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">
+                              打回原因：{doc.reviewComment}
+                            </div>
+                          ) : null}
+                          {doc.reviewStatus === "PENDING" ? (
+                            <div className="mt-2 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                              {data.isOwner ? "等待你审核，通过后才会给上传者加分。" : "已提交给组长审核，审核通过后才会加分。"}
+                            </div>
+                          ) : null}
+                          {!doc.storageKey && doc.content?.trim() ? (
+                            <details className="mt-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm">
+                              <summary className="cursor-pointer text-slate-600">查看正文</summary>
+                              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words text-xs text-slate-700">
+                                {doc.content}
+                              </pre>
+                            </details>
                           ) : null}
                         </div>
-                        <div className="mt-0.5 text-xs text-slate-500">
-                          {doc.storageKey
-                            ? `${doc.originalFileName ?? "文件"}${doc.fileSize ? ` · ${formatBytes(doc.fileSize)}` : ""}`
-                            : "历史协作文稿（无附件）"}
-                        </div>
-                        {doc.description ? (
-                          <div className="mt-1 text-xs text-slate-600">{doc.description}</div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {fileUrl ? (
+                          <a
+                            href={fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="rounded-full border border-slate-900 bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-800"
+                          >
+                            在新标签打开
+                          </a>
                         ) : null}
-                        <div className="mt-1 text-xs text-slate-400">作者：{doc.author.name}</div>
-                        {doc.reviewStatus === "REJECTED" && doc.reviewComment ? (
-                          <div className="mt-2 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">
-                            打回原因：{doc.reviewComment}
-                          </div>
+                        {canReviewDocuments && doc.reviewStatus === "PENDING" ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => void reviewDocument(doc.id, "APPROVED")}
+                              className="rounded-full border border-emerald-200 px-3 py-1 text-xs text-emerald-600 hover:bg-emerald-50"
+                            >
+                              审核通过
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void reviewDocument(doc.id, "REJECTED")}
+                              className="rounded-full border border-amber-200 px-3 py-1 text-xs text-amber-600 hover:bg-amber-50"
+                            >
+                              打回重做
+                            </button>
+                          </>
                         ) : null}
-                        {doc.reviewStatus === "PENDING" ? (
-                          <div className="mt-2 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                            {data.isOwner ? "等待你审核，通过后才会给上传者加分。" : "已提交给组长审核，审核通过后才会加分。"}
-                          </div>
-                        ) : null}
-                        {!doc.storageKey && doc.content?.trim() ? (
-                          <details className="mt-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm">
-                            <summary className="cursor-pointer text-slate-600">查看正文</summary>
-                            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words text-xs text-slate-700">
-                              {doc.content}
-                            </pre>
-                          </details>
+                        {showDeleteDoc ? (
+                          <button
+                            type="button"
+                            onClick={() => void deleteDocument(doc.id)}
+                            disabled={!canDeleteDoc}
+                            className="rounded-full border border-red-200 px-3 py-1 text-xs text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            删除
+                          </button>
                         ) : null}
                       </div>
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {fileUrl ? (
-                        <a
-                          href={fileUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="rounded-full border border-slate-900 bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-800"
-                        >
-                          在新标签打开
-                        </a>
-                      ) : null}
-                      {canReviewDocuments && doc.reviewStatus === "PENDING" ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => void reviewDocument(doc.id, "APPROVED")}
-                            className="rounded-full border border-emerald-200 px-3 py-1 text-xs text-emerald-600 hover:bg-emerald-50"
-                          >
-                            审核通过
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void reviewDocument(doc.id, "REJECTED")}
-                            className="rounded-full border border-amber-200 px-3 py-1 text-xs text-amber-600 hover:bg-amber-50"
-                          >
-                            打回重做
-                          </button>
-                        </>
-                      ) : null}
-                      {showDeleteDoc ? (
-                        <button
-                          type="button"
-                          onClick={() => void deleteDocument(doc.id)}
-                          disabled={!canDeleteDoc}
-                          className="rounded-full border border-red-200 px-3 py-1 text-xs text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          删除
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
+                  );
+                })}
+              </div>
+            </section>
+          </div>
         </div>
       </div>
 

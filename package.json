@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "node scripts/kill-port.js 3000 3002 && next dev -H 0.0.0.0 -p 3000",
+    "dev": "node scripts/kill-port.js 3000 3002 && node scripts/rm-next.js && next dev -H 0.0.0.0 -p 3000",
     "dev:clean": "node scripts/kill-port.js 3000 3002 && node scripts/rm-next.js && next dev -H 0.0.0.0 -p 3000",
     "build": "prisma generate && next build",
     "build:vercel": "prisma generate && prisma migrate deploy && next build",

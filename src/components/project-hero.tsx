@@ -41,43 +41,43 @@ export function ProjectHero({
     <>
       <section className="mb-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="min-w-0 flex-1">
             {/* 项目标题 */}
-            <h1 className="text-5xl font-semibold leading-tight tracking-tight truncate">
-              {displayTitle}
-            </h1>
-            {/* 项目切换器 */}
-            {projectId && (
-              <ProjectSwitcher
-                currentProjectId={projectId}
-                currentProjectTitle={displayTitle}
-              />
-            )}
-            {/* 编辑按钮 */}
-            {isOwner && projectId && (
-              <button
-                type="button"
-                onClick={() => setEditOpen(true)}
-                className="shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-                title="项目设置"
-              >
-                <Pencil className="h-4 w-4" />
-              </button>
-            )}
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="min-w-0 text-3xl font-semibold leading-tight tracking-tight text-slate-950 sm:text-4xl">
+                {displayTitle}
+              </h1>
+              {/* 项目切换器 */}
+              {projectId && (
+                <ProjectSwitcher
+                  currentProjectId={projectId}
+                  currentProjectTitle={displayTitle}
+                />
+              )}
+              {/* 编辑按钮 */}
+              {isOwner && projectId && (
+                <button
+                  type="button"
+                  onClick={() => setEditOpen(true)}
+                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl p-0 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                  title="项目设置"
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-slate-500">
+              <span className="shrink-0">截止时间</span>
+              <DeadlineDisplay deadline={project.deadline} size="normal" />
+              {activeTask ? <AlertCountdownBadge level={activeTask.warningLevel} /> : null}
+            </div>
           </div>
           <div className="flex items-center gap-3 pt-1 shrink-0">
-            <span className="rounded-full bg-slate-100 px-3 py-2 text-sm font-mono font-medium text-slate-600">
+            <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-mono font-medium text-slate-600">
               {project.inviteCode}
             </span>
             <ProjectInviteChips inviteCode={project.inviteCode} />
           </div>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-muted">
-          <span className="flex items-center gap-2">
-            截止时间：
-            <DeadlineDisplay deadline={project.deadline} size="normal" />
-          </span>
-          {activeTask ? <AlertCountdownBadge level={activeTask.warningLevel} /> : null}
         </div>
       </section>
 

@@ -28,20 +28,23 @@ export function TopNav() {
   };
 
   return (
-    <header className="h-14 border-b border-neutral-200 bg-white">
-      <div className="shell flex h-full items-center justify-between gap-3 py-0">
-        <div className="flex min-w-0 flex-1 items-center gap-2 text-neutral-900 sm:gap-3">
+    <header className="min-h-16 border-b border-neutral-200 bg-white">
+      <div className="mx-auto flex min-h-16 w-full max-w-[1400px] items-center justify-between gap-3 px-8 py-0">
+        <div className="flex min-w-0 flex-1 items-center gap-3 text-neutral-900">
           {!isHome ? (
             <Link
               href={getBackHref() as "/" | `/project/${string}`}
-              className="inline-flex shrink-0 items-center gap-1 rounded-xl border border-neutral-200 bg-white px-2.5 py-1.5 text-sm font-medium text-neutral-800 transition hover:bg-neutral-50 hover:text-neutral-900"
+              className="inline-flex h-10 shrink-0 items-center gap-1 rounded-xl border border-neutral-200 bg-white px-3 text-sm font-medium leading-none text-neutral-800 transition hover:bg-neutral-50 hover:text-neutral-900"
               aria-label="返回上一层"
             >
               <ArrowLeft className="h-4 w-4" aria-hidden />
               返回
             </Link>
           ) : null}
-          <Link href="/" className="truncate text-xl font-semibold tracking-tight text-neutral-900 hover:opacity-80 sm:text-2xl">
+          <Link
+            href="/"
+            className="inline-flex h-10 items-center truncate text-xl font-semibold leading-none tracking-tight text-neutral-900 hover:opacity-80 sm:text-2xl"
+          >
             Fusion Space
           </Link>
         </div>

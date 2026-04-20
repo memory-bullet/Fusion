@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { ArrowLeft, BellRing, FileUp, Loader2, RefreshCw, Trash2, Users, Plus, X, UserCog, UserMinus, Share2, CheckCircle, XCircle, Calendar } from "lucide-react";
+import { BellRing, FileUp, Loader2, RefreshCw, Trash2, Users, Plus, X, UserCog, UserMinus, Share2, CheckCircle, XCircle, Calendar } from "lucide-react";
 import { TopNav } from "@/components/top-nav";
 import { ProjectHero } from "@/components/project-hero";
 import { ReallocateDialog } from "@/components/reallocate-dialog";
@@ -926,23 +925,19 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
           isOwner={data.isOwner}
           onProjectUpdated={() => void refresh()}
         />
-        <div className="mb-6">
-          <Link
-            href={`/project/${projectId}`}
-            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            返回主界面
-          </Link>
-        </div>
 
         <section className="line-card mb-8 p-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold tracking-tight text-slate-900">AI 团队进度简报</h2>
-              <p className="mt-1 text-xs text-muted">
-                根据任务状态与操作记录自动生成，供全员查看；状态更新后约 2 秒会尝试刷新（需配置 GEMINI_API_KEY 或 OPENAI_API_KEY）。
-              </p>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <h2 className="text-lg font-semibold tracking-tight text-slate-900">AI 团队进度简报</h2>
+                {data.project.progressDigestAt ? (
+                  <span className="text-xs font-normal text-slate-400">
+                    更新于 {new Date(data.project.progressDigestAt).toLocaleString("zh-CN")}
+                  </span>
+                ) : null}
+              </div>
+              <p className="mt-1 text-xs text-muted">根据任务进展自动生成简报。</p>
             </div>
             {data.me && !data.isGuest ? (
               <button
@@ -951,7 +946,7 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                 onClick={() => void refreshProgressDigestNow()}
                 className="shrink-0 rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 disabled:opacity-50"
               >
-                {digestBusy ? "生成中…" : "立即刷新简报"}
+                {digestBusy ? "生成中…" : "立即刷新"}
               </button>
             ) : null}
           </div>
@@ -960,13 +955,8 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
               {data.project.progressDigest}
             </div>
           ) : (
-            <p className="mt-4 text-sm text-muted">尚无简报。更新任务状态或点击「立即刷新简报」生成。</p>
+            <p className="mt-4 text-sm text-muted">暂无简报，点击“立即刷新”生成。</p>
           )}
-          {data.project.progressDigestAt ? (
-            <p className="mt-2 text-xs text-muted">
-              生成时间：{new Date(data.project.progressDigestAt).toLocaleString("zh-CN")}
-            </p>
-          ) : null}
         </section>
 
         {/* ── 成员管理 ── */}
@@ -1061,10 +1051,12 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                       <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-line bg-slate-50">
                         <FileUp className="h-7 w-7 text-slate-500" />
                       </div>
-                      <div className="mt-6 text-3xl font-semibold tracking-tight">上传作业要求文档</div>
+                      <div className="mt-6 text-3xl font-semibold tracking-tight">上传作业要求</div>
                       <p className="mt-3 text-sm text-muted">
-                        支持 PDF、Word（.docx）、Markdown、HTML、纯文本与常见图片（含 HEIC）；点击或拖拽到此处，将自动提取文本并由 AI
-                        解析（含时间节点与建议任务）。
+                        支持拖拽或点击上传，系统会自动生成任务建议。
+                      </p>
+                      <p className="mt-2 text-xs text-muted">
+                        支持 PDF、Word、Markdown、图片等格式
                       </p>
                     </label>
                   </>
@@ -1081,10 +1073,12 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                         <FileUp className="h-7 w-7 text-slate-500" />
                       )}
                     </div>
-                    <div className="mt-6 text-3xl font-semibold tracking-tight">上传作业要求文档</div>
+                    <div className="mt-6 text-3xl font-semibold tracking-tight">上传作业要求</div>
                     <p className="mt-3 text-sm text-muted">
-                      支持 PDF、Word（.docx）、Markdown、HTML、纯文本与常见图片（含 HEIC）；点击或拖拽到此处，将自动提取文本并由 AI
-                      解析（含时间节点与建议任务）。
+                      支持拖拽或点击上传，系统会自动生成任务建议。
+                    </p>
+                    <p className="mt-2 text-xs text-muted">
+                      支持 PDF、Word、Markdown、图片等格式
                     </p>
                     {!data.isOwner ? (
                       <p className="mt-4 text-sm font-medium text-amber-700">仅组长可在此上传并生成任务草稿。</p>
@@ -1132,10 +1126,10 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                   )}
                   <span className="truncate">
                     {busy
-                      ? "正在读取文档并由 AI 解析（可能需要 1～3 分钟）…"
+                      ? "AI 正在提取结果…"
                       : deliverables.length > 0
-                        ? "AI 已提取关键产出物"
-                        : "AI 提取关键产出物"}
+                        ? "AI 提取结果"
+                        : "AI 提取结果"}
                   </span>
                 </div>
                 {uploadError ? (
@@ -1170,12 +1164,12 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
                     </span>
                   ))
                 ) : !busy ? (
-                  <p className="text-sm text-muted">上传左侧文档后，将在此显示模型识别出的交付物标签。</p>
+                  <p className="text-sm text-muted">上传后将在这里显示提取结果。</p>
                 ) : null}
               </div>
               {milestones.length > 0 ? (
                 <div className="mt-5 border-t border-line pt-5">
-                  <p className="text-sm font-medium text-slate-700">关键时间节点（AI）</p>
+                  <p className="text-sm font-medium text-slate-700">关键时间节点</p>
                   <ul className="mt-2 space-y-2 text-sm">
                     {milestones.map((m, i) => (
                       <li key={`${i}-${m.label}`} className="flex flex-wrap gap-x-2 gap-y-0.5">
@@ -1194,11 +1188,8 @@ export function ProjectManagePage({ projectId }: { projectId: string }) {
           <section className="line-card mb-8 overflow-hidden p-6">
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h2 className="text-xl font-semibold tracking-tight">任务草稿（未写入数据库）</h2>
-                <p className="mt-1 text-sm text-muted">
-                  刷新页面会丢失。AI 建议为<strong className="font-medium text-slate-800"> 100 点制</strong>
-                  工作量（可改）；确认后写入任务列表，相对截止会换算为具体日期（不超过项目截止）。
-                </p>
+                <h2 className="text-xl font-semibold tracking-tight">任务草稿</h2>
+                <p className="mt-1 text-sm text-muted">确认后将加入任务列表。</p>
               </div>
               <button
                 type="button"

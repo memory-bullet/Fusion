@@ -1,10 +1,9 @@
 ﻿"use client";
 
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import clsx from "clsx";
-import { ArrowLeft, Download, MessageSquarePlus, X } from "lucide-react";
+import { Download, MessageSquarePlus, X } from "lucide-react";
 
 import { TopNav } from "@/components/top-nav";
 import { ProjectHero } from "@/components/project-hero";
@@ -40,53 +39,46 @@ const PENALTY_RULES = [
   "明确拒绝任务：+25"
 ] as const;
 const CREDIT_RULES = [
-  "信用分默认 100 分，按项目累计沉淀。",
-  "每次逾期未处理：信用分 -8。",
-  "每次被催告后仍无响应：信用分 -12。",
-  "每次任务被接管：信用分 -20。",
-  "明确拒绝任务：信用分 -25。",
-  "信用分最低记为 0，不出现负分。"
+  "默认信用分 100",
+  "逾期未处理：信用分 -8",
+  "被催告后仍无响应：信用分 -12",
+  "任务被接管：信用分 -20",
+  "明确拒绝任务：信用分 -25",
+  "最低记为 0"
 ] as const;
 const ZERO_SHOT_RULE_DESCRIPTION =
-  "定义：单轮 AI 生成 + 极低人工修改 + 无二次约束，属于无脑使用 AI 直接出稿。命中后，“过程投入”维度上限降至 60，并在最终分阶段触发额外降权。";
+  "单轮 AI 生成、几乎无人工修改且无二次约束时，会触发过程投入降权。";
 
 const SCORE_RULE_ITEMS = [
   {
     label: "任务质量",
     weight: "25%",
-    description: "聚焦最终产出质量：内容可用性、逻辑完整性、评审通过率与返工情况",
-    source: "Task.status + ActionLog.actionType + ActionLog.description"
+    description: "最终产出质量，如内容可用性、完整性和返工情况。"
   },
   {
     label: "工作量达成",
     weight: "20%",
-    description: "已完成工作量点数 / 已分配工作量点数",
-    source: "Task.workloadPoints + Task.status"
+    description: "已完成工作量与分配工作量的完成情况。"
   },
   {
     label: "过程投入",
     weight: "15%",
-    description: "AI 迭代、编辑与提交过程深度；zero-shot 行为降权",
-    source: "ActionLog.actionType + ActionLog.description"
+    description: "任务过程中的投入情况，如 AI 使用、编辑和提交深度。"
   },
   {
     label: "协作贡献",
     weight: "15%",
-    description: "评审支持、跨任务协作、接管后救火完成情况",
-    source: "ActionLog + Task.isReallocated + Task.status"
+    description: "评审支持、跨任务协作和接管后完成情况。"
   },
   {
     label: "时效责任",
     weight: "15%",
-    description:
-      "按逾期占比扣分：0%=100；(0,10%]=80；(10%,25%]=65；(25%,50%]=45；(50%,100%]=30；>100%=20；被接管任务按最重档记 20",
-    source: "Task.deadline + Task.status + ActionLog.createdAt"
+    description: "是否按时推进与完成任务。"
   },
   {
     label: "信用记录",
     weight: "10%",
-    description: "成员长期履约信用分，默认 100，受逾期、失联、被接管、拒绝任务影响",
-    source: "User.creditScore"
+    description: "项目周期内的履约表现与信用情况。"
   }
 ] as const;
 
@@ -258,6 +250,9 @@ export function ProjectAnalyticsPage({ projectId }: { projectId: string }) {
   const searchParams = useSearchParams();
   const { data, error, refresh } = useProjectDashboard(projectId);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [appealOpen, setAppealOpen] = useState(false);
   const [appealType, setAppealType] = useState<"TOTAL" | "DIMENSION">("TOTAL");
   const [appealDimension, setAppealDimension] = useState("任务质量");
@@ -372,6 +367,52 @@ export function ProjectAnalyticsPage({ projectId }: { projectId: string }) {
     }
   }
 
+  async function exportAnalyticsPdf() {
+    if (exporting) return;
+
+    setExporting(true);
+    setExportError(null);
+    try {
+      const params = new URLSearchParams();
+      if (activeProfile?.id) {
+        params.set("member", activeProfile.id);
+      }
+
+      const res = await fetch(`/api/projects/${projectId}/analytics-export${params.size ? `?${params.toString()}` : ""}`);
+      if (!res.ok) {
+        let message = "PDF 导出失败，请稍后重试。";
+        try {
+          const payload = (await res.json()) as { error?: string };
+          if (payload.error) {
+            message = payload.error;
+          }
+        } catch {}
+        throw new Error(message);
+      }
+
+      const contentType = res.headers.get("Content-Type") || "";
+      if (!contentType.includes("application/pdf")) {
+        throw new Error("导出结果异常，请稍后重试。");
+      }
+
+      const blob = await res.blob();
+      const fallbackDate = new Date().toISOString().slice(0, 10);
+      const fallbackFilename = `成员贡献度报告-${data.project.inviteCode}-${fallbackDate}.pdf`;
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fallbackFilename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : "PDF 导出失败，请稍后重试。");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f8f9fa]">
       <TopNav />
@@ -386,20 +427,22 @@ export function ProjectAnalyticsPage({ projectId }: { projectId: string }) {
         />
 
         <div className="mb-6 flex flex-wrap items-center gap-3">
-          <Link
-            href={`/project/${projectId}`}
-            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            返回主界面
-          </Link>
-          <a
-            href={`/api/projects/${projectId}/analytics-export`}
-            className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700"
+          <button
+            type="button"
+            onClick={() => void exportAnalyticsPdf()}
+            disabled={exporting}
+            className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
           >
             <Download className="h-4 w-4" />
-            一键导出贡献度 PDF
-          </a>
+            {exporting ? "导出中..." : "导出贡献度PDF"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setRulesOpen(true)}
+            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+          >
+            评分规则
+          </button>
           <button
             type="button"
             onClick={() => {
@@ -413,96 +456,16 @@ export function ProjectAnalyticsPage({ projectId }: { projectId: string }) {
             className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
           >
             <MessageSquarePlus className="h-4 w-4" />
-            提交评分申诉
+            发起申诉
           </button>
         </div>
-
-        <section className="mb-6 rounded-2xl bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
-          <div className="grid gap-3 text-sm md:grid-cols-4">
-            <div className="rounded-xl bg-slate-50 px-4 py-3">
-              <div className="text-muted">任务总工作量</div>
-              <div className="mt-1 text-2xl font-semibold">{teamOutput} pts</div>
-            </div>
-            <div className="rounded-xl bg-slate-50 px-4 py-3">
-              <div className="text-muted">已完成任务</div>
-              <div className="mt-1 text-2xl font-semibold">{completed}</div>
-            </div>
-            <div className="rounded-xl bg-slate-50 px-4 py-3">
-              <div className="text-muted">成员均分</div>
-              <div className="mt-1 text-2xl font-semibold">
-                {Math.round(profiles.reduce((sum, profile) => sum + profile.totalScore, 0) / Math.max(profiles.length, 1))}
-              </div>
-            </div>
-            <div className="rounded-xl bg-slate-50 px-4 py-3">
-              <div className="text-muted">平均活跃趋势</div>
-              <div className={clsx("mt-1 text-2xl font-semibold", overallTrend >= 0 ? "text-blue-700" : "text-red-500")}>
-                {overallTrend >= 0 ? "↑" : "↓"} {Math.abs(overallTrend)}%
-              </div>
-            </div>
+        {exportError ? (
+          <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {exportError}
           </div>
-        </section>
+        ) : null}
 
-        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900">贡献度评分规则</h2>
-              <p className="mt-1 text-sm text-slate-600">
-                最终分 = 加权基础分 × 责任系数 - 违规惩罚。6 个维度先形成基础分，再根据最终履约结果乘以责任系数；拖欠 DDL、失联不处理、被接管或拒绝任务，会同时影响时效责任、信用记录和最终扣分。
-              </p>
-            </div>
-            <div className="rounded-full bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">数据每 15 秒自动刷新</div>
-          </div>
-
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {SCORE_RULE_ITEMS.map((rule) => (
-              <div key={rule.label} className="rounded-xl border border-slate-200 bg-slate-50/50 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-sm font-semibold text-slate-900">{rule.label}</div>
-                  <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-slate-600">权重 {rule.weight}</span>
-                </div>
-                <p className="mt-1 text-xs leading-5 text-slate-600">{rule.description}</p>
-                <div className="mt-2 text-[11px] text-slate-500">数据源：{rule.source}</div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-4 grid gap-3 xl:grid-cols-3">
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
-              <div className="text-sm font-semibold text-amber-950">zero-shot 行为降权</div>
-              <p className="mt-1 text-xs leading-5 text-amber-900">{ZERO_SHOT_RULE_DESCRIPTION}</p>
-            </div>
-            <div className="rounded-xl border border-rose-200 bg-rose-50 p-3">
-              <div className="text-sm font-semibold text-rose-950">违规惩罚</div>
-              <div className="mt-2 space-y-1 text-xs leading-5 text-rose-900">
-                {PENALTY_RULES.map((rule) => (
-                  <div key={rule}>{rule}</div>
-                ))}
-              </div>
-            </div>
-            <div className="rounded-xl border border-sky-200 bg-sky-50 p-3">
-              <div className="text-sm font-semibold text-sky-950">责任系数与自动接管</div>
-              <div className="mt-2 space-y-1 text-xs leading-5 text-sky-900">
-                {RESPONSIBILITY_RULES.map((rule) => (
-                  <div key={rule}>{rule}</div>
-                ))}
-                <div className="pt-1">
-                  自动接管规则：当任务逾期占比达到 50% 且仍未完成时，系统将任务转入可接管状态，队长可一键重新分配。
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-            <div className="text-sm font-semibold text-slate-900">信用分如何计算</div>
-            <div className="mt-2 grid gap-1 text-xs leading-5 text-slate-600 md:grid-cols-2">
-              {CREDIT_RULES.map((rule) => (
-                <div key={rule}>{rule}</div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="grid gap-6 lg:grid-cols-[360px_1fr]">
+        <section className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
           <article className="rounded-2xl bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
             <h2 className="mb-4 text-2xl font-semibold tracking-tight">核心贡献排行榜</h2>
             <div className="space-y-2">
@@ -536,8 +499,8 @@ export function ProjectAnalyticsPage({ projectId }: { projectId: string }) {
 
           <article className="rounded-2xl bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
             <h2 className="mb-4 text-2xl font-semibold tracking-tight">全员细分维度雷达看板</h2>
-            <p className="mb-5 text-sm text-muted">虚线为团队平均分，实线为个人得分。</p>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <p className="mb-4 text-xs text-muted">虚线：团队平均  实线：个人得分</p>
+            <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
               {profiles.map((profile) => (
                 <div
                   key={profile.id}
@@ -564,7 +527,7 @@ export function ProjectAnalyticsPage({ projectId }: { projectId: string }) {
                   </div>
 
                   <div className="mt-3 border-t border-slate-100 pt-3">
-                    <div className="mb-2 text-xs font-medium text-slate-500">维度分数（用于基础分）</div>
+                    <div className="mb-2 text-xs font-medium text-slate-500">维度分数</div>
                     <div className="grid grid-cols-2 gap-2">
                       {ANALYTICS_METRIC_LABELS.map((label, dimIdx) => {
                         const score = profile.dimensions[dimIdx];
@@ -577,7 +540,7 @@ export function ProjectAnalyticsPage({ projectId }: { projectId: string }) {
                             </div>
                             <div className="mt-0.5 flex items-center justify-between">
                               <span className="font-semibold text-slate-900">{score}</span>
-                              <span className={clsx(diff >= 0 ? "text-blue-700" : "text-red-500")}>
+                              <span className={clsx("text-[11px]", diff >= 0 ? "text-blue-500" : "text-red-400")}>
                                 {diff >= 0 ? "+" : ""}
                                 {diff}
                               </span>
@@ -591,6 +554,34 @@ export function ProjectAnalyticsPage({ projectId }: { projectId: string }) {
               ))}
             </div>
           </article>
+        </section>
+
+        <section className="mt-6 rounded-2xl bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
+          <div className="mb-3 flex justify-end">
+            <div className="rounded-full bg-slate-50 px-3 py-1 text-[11px] font-medium text-slate-500">15 秒自动刷新</div>
+          </div>
+          <div className="grid gap-3 text-sm md:grid-cols-4">
+            <div className="rounded-xl bg-slate-50 px-4 py-3">
+              <div className="text-muted">任务总工作量</div>
+              <div className="mt-1 text-2xl font-semibold">{teamOutput} pts</div>
+            </div>
+            <div className="rounded-xl bg-slate-50 px-4 py-3">
+              <div className="text-muted">已完成任务</div>
+              <div className="mt-1 text-2xl font-semibold">{completed}</div>
+            </div>
+            <div className="rounded-xl bg-slate-50 px-4 py-3">
+              <div className="text-muted">成员均分</div>
+              <div className="mt-1 text-2xl font-semibold">
+                {Math.round(profiles.reduce((sum, profile) => sum + profile.totalScore, 0) / Math.max(profiles.length, 1))}
+              </div>
+            </div>
+            <div className="rounded-xl bg-slate-50 px-4 py-3">
+              <div className="text-muted">平均活跃趋势</div>
+              <div className={clsx("mt-1 text-2xl font-semibold", overallTrend >= 0 ? "text-blue-700" : "text-red-500")}>
+                {overallTrend >= 0 ? "↑" : "↓"} {Math.abs(overallTrend)}%
+              </div>
+            </div>
+          </div>
         </section>
 
         <section className="mt-6 rounded-2xl bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
@@ -611,9 +602,7 @@ export function ProjectAnalyticsPage({ projectId }: { projectId: string }) {
               发起申诉
             </button>
           </div>
-          <p className="mb-4 text-sm text-slate-600">
-            若你认为总分或某个维度评分存在偏差，可提交申诉。系统会通知组长复核，并保留申诉记录用于追踪处理。
-          </p>
+          <p className="mb-3 text-sm text-slate-600">如对评分有异议，可发起申诉。</p>
           {!canSubmitAppeal ? (
             <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
               当前为访客模式，仅可查看申诉记录；请以项目成员身份登录后发起申诉。
@@ -656,6 +645,75 @@ export function ProjectAnalyticsPage({ projectId }: { projectId: string }) {
           </section>
         ) : null}
       </div>
+
+      {rulesOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 px-4 py-8">
+          <div className="flex max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
+              <div>
+                <h3 className="text-xl font-semibold text-slate-900">评分规则说明</h3>
+                <p className="mt-1 text-sm text-slate-500">最终分 = 加权基础分 × 责任系数 - 违规惩罚</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRulesOpen(false)}
+                className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto px-6 py-5">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {SCORE_RULE_ITEMS.map((rule) => (
+                  <div key={rule.label} className="rounded-2xl border border-slate-200 bg-slate-50/60 p-3.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-sm font-semibold text-slate-900">{rule.label}</div>
+                      <span className="rounded-full bg-sky-50 px-2.5 py-0.5 text-xs font-semibold text-sky-700">{rule.weight}</span>
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-slate-600">{rule.description}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-5 grid gap-4 xl:grid-cols-3">
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                  <div className="text-sm font-semibold text-amber-950">zero-shot 行为降权</div>
+                  <p className="mt-2 text-xs leading-5 text-amber-900">{ZERO_SHOT_RULE_DESCRIPTION}</p>
+                </div>
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+                  <div className="text-sm font-semibold text-rose-950">违规惩罚</div>
+                  <div className="mt-2 space-y-1 text-xs leading-5 text-rose-900">
+                    {PENALTY_RULES.map((rule) => (
+                      <div key={rule}>{rule}</div>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+                  <div className="text-sm font-semibold text-sky-950">责任系数与自动接管</div>
+                  <div className="mt-2 space-y-1 text-xs leading-5 text-sky-900">
+                    {RESPONSIBILITY_RULES.map((rule) => (
+                      <div key={rule}>{rule}</div>
+                    ))}
+                    <div className="pt-1">
+                      当任务逾期占比较高且仍未完成时，系统会转为可接管状态。
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                <div className="text-sm font-semibold text-slate-900">信用分如何计算</div>
+                <div className="mt-3 grid gap-2 text-xs leading-5 text-slate-600 md:grid-cols-2">
+                  {CREDIT_RULES.map((rule) => (
+                    <div key={rule}>{rule}</div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {appealOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 px-4">
