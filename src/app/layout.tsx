@@ -1,5 +1,6 @@
 ﻿import "./globals.css";
 import type { Metadata } from "next";
+import { ButtonPressEffect } from "@/components/button-press-effect";
 
 export const metadata: Metadata = {
   title: "Fusion Space",
@@ -9,7 +10,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <ButtonPressEffect />
+        {children}
+      </body>
     </html>
   );
 }
