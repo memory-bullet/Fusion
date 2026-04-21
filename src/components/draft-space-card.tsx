@@ -31,6 +31,7 @@ export function DraftSpaceCard({ projectId, inviteCode, onEnter, onRename, onDel
           className="min-w-0 flex-1 cursor-pointer"
           onClick={() => onEnter(projectId)}
           role="button"
+          data-button-hover="off"
           tabIndex={0}
           onKeyDown={(e) => e.key === "Enter" && onEnter(projectId)}
         >

@@ -104,6 +104,7 @@ function ProjectCard({
         className="min-w-0 flex-1 cursor-pointer"
         onClick={() => onEnter(project.id)}
         role="button"
+        data-button-hover="off"
         tabIndex={0}
         onKeyDown={(e) => e.key === "Enter" && onEnter(project.id)}
       >
